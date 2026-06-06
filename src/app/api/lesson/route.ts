@@ -1,5 +1,6 @@
+export const runtime = 'edge';
+
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
 import ZAI from 'z-ai-web-dev-sdk';
 import type {
   LessonPlan,
@@ -154,7 +155,7 @@ function createFallbackLesson(
   ];
 
   return {
-    lesson_id: uuidv4(),
+    lesson_id: crypto.randomUUID(),
     title: `${safeQuery} - Class ${classNumber} ${subjectLabel}`,
     lang: 'bn+en',
     classNumber,
@@ -290,7 +291,7 @@ async function generateLessonWithAI(
     }
 
     const lesson: LessonPlan = {
-      lesson_id: parsed.lesson_id || uuidv4(),
+      lesson_id: parsed.lesson_id || crypto.randomUUID(),
       title: parsed.title || `${query} - Class ${classNumber}`,
       lang: parsed.lang || 'bn+en',
       classNumber,
