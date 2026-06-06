@@ -1,61 +1,93 @@
 import { create } from 'zustand';
-import type { Classroom, ClassroomStatus, ClassNumber, SubjectId } from '@/types';
+import type { Classroom, CreateClassroomRequest, ClassroomStatus } from '@/types';
+import { storage } from '@/services/storage';
+import { v4 as uuidv4 } from 'uuid';
 
-interface ClassroomState {
+interface ClassroomStore {
   classrooms: Classroom[];
-  currentClassroom: Classroom | null;
+  activeClassroomId: string | null;
   isLoading: boolean;
-  error: string | null;
-  filter: {
-    classNumber: ClassNumber | 'all';
-    subject: SubjectId | 'all';
-    status: ClassroomStatus | 'all';
-  };
 
   // Actions
-  setClassrooms: (classrooms: Classroom[]) => void;
-  addClassroom: (classroom: Classroom) => void;
+  loadClassrooms: () => void;
+  createClassroom: (req: CreateClassroomRequest) => Classroom;
   updateClassroom: (id: string, updates: Partial<Classroom>) => void;
-  removeClassroom: (id: string) => void;
-  setCurrentClassroom: (classroom: Classroom | null) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-  setFilter: (filter: Partial<ClassroomState['filter']>) => void;
+  deleteClassroom: (id: string) => void;
+  setActiveClassroom: (id: string | null) => void;
+  updateClassroomStatus: (id: string, status: ClassroomStatus) => void;
+  incrementSessions: (id: string) => void;
+  getClassroom: (id: string) => Classroom | undefined;
 }
 
-export const useClassroomStore = create<ClassroomState>((set) => ({
+export const useClassroomStore = create<ClassroomStore>((set, get) => ({
   classrooms: [],
-  currentClassroom: null,
+  activeClassroomId: null,
   isLoading: false,
-  error: null,
-  filter: {
-    classNumber: 'all',
-    subject: 'all',
-    status: 'all',
+
+  loadClassrooms: () => {
+    const classrooms = storage.getClassrooms();
+    set({ classrooms });
   },
 
-  setClassrooms: (classrooms) => set({ classrooms }),
-  addClassroom: (classroom) =>
-    set((state) => ({ classrooms: [classroom, ...state.classrooms] })),
-  updateClassroom: (id, updates) =>
-    set((state) => ({
-      classrooms: state.classrooms.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-      currentClassroom:
-        state.currentClassroom?.id === id
-          ? { ...state.currentClassroom, ...updates }
-          : state.currentClassroom,
-    })),
-  removeClassroom: (id) =>
-    set((state) => ({
-      classrooms: state.classrooms.filter((c) => c.id !== id),
-      currentClassroom:
-        state.currentClassroom?.id === id ? null : state.currentClassroom,
-    })),
-  setCurrentClassroom: (classroom) => set({ currentClassroom: classroom }),
-  setLoading: (isLoading) => set({ isLoading }),
-  setError: (error) => set({ error }),
-  setFilter: (filter) =>
-    set((state) => ({ filter: { ...state.filter, ...filter } })),
+  createClassroom: (req: CreateClassroomRequest) => {
+    const now = new Date().toISOString();
+    const classroom: Classroom = {
+      id: uuidv4(),
+      name: req.name || `${req.subjectLabel} - Class ${req.classNumber}`,
+      classNumber: req.classNumber,
+      stream: req.stream,
+      subject: req.subject,
+      subjectLabel: req.subjectLabel,
+      subjectIcon: req.subjectIcon,
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+      sessions_count: 0,
+      teacher_persona: req.teacher_persona,
+    };
+
+    storage.saveClassroom(classroom);
+    const classrooms = get().classrooms;
+    set({ classrooms: [...classrooms, classroom] });
+    return classroom;
+  },
+
+  updateClassroom: (id, updates) => {
+    const classrooms = get().classrooms;
+    const idx = classrooms.findIndex((c) => c.id === id);
+    if (idx !== -1) {
+      const updated = { ...classrooms[idx], ...updates, updated_at: new Date().toISOString() };
+      classrooms[idx] = updated;
+      storage.saveClassroom(updated);
+      set({ classrooms: [...classrooms] });
+    }
+  },
+
+  deleteClassroom: (id) => {
+    storage.deleteClassroom(id);
+    const classrooms = get().classrooms.filter((c) => c.id !== id);
+    set({ classrooms });
+    if (get().activeClassroomId === id) {
+      set({ activeClassroomId: null });
+    }
+  },
+
+  setActiveClassroom: (id) => {
+    set({ activeClassroomId: id });
+  },
+
+  updateClassroomStatus: (id, status) => {
+    get().updateClassroom(id, { status });
+  },
+
+  incrementSessions: (id) => {
+    const classroom = get().classrooms.find((c) => c.id === id);
+    if (classroom) {
+      get().updateClassroom(id, { sessions_count: classroom.sessions_count + 1 });
+    }
+  },
+
+  getClassroom: (id) => {
+    return get().classrooms.find((c) => c.id === id);
+  },
 }));

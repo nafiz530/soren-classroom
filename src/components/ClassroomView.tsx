@@ -1,103 +1,214 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import BoardCanvas, { type BoardCanvasHandle } from '@/components/classroom/BoardCanvas';
-import { ModeController } from '@/components/classroom/ModeController';
-import { InputBar } from '@/components/classroom/InputBar';
-import { ClassroomTransition } from '@/components/classroom/ClassroomTransition';
-import { PlaybackControls } from '@/components/classroom/PlaybackControls';
-import { useClassroomStore } from '@/stores/classroomStore';
-import { useTimelineStore } from '@/stores/timelineStore';
-import { useModeStore } from '@/stores/modeStore';
-import { SyncEngine } from '@/utils/syncEngine';
-import { detectDevice } from '@/utils/deviceDetect';
-import type { TimelineEvent, LessonTimeline } from '@/types';
 import {
-  ArrowLeft,
-  GraduationCap,
-  Volume2,
-  VolumeX,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ArrowLeft, Settings, Volume2, VolumeX, Maximize2, Minimize2 } from 'lucide-react';
+import { SpatialBoard } from './classroom/SpatialBoard';
+import { SpeechIndicator } from './classroom/SpeechIndicator';
+import { InputBar } from './classroom/InputBar';
+import { QuizOverlay } from './classroom/QuizOverlay';
+import { TokenDisplay } from './classroom/TokenDisplay';
+import { useFlowStore } from '@/stores/flowStore';
+import { useClassroomStore } from '@/stores/classroomStore';
+import { useTokenStore } from '@/stores/tokenStore';
+import { useProgressStore } from '@/stores/progressStore';
+import { FlowController } from '@/engine/FlowController';
+import { storage } from '@/services/storage';
+import { classroomMemory } from '@/services/classroomMemory';
+import { TEACHER_PERSONAS } from '@/config/curriculum';
+import type {
+  Classroom,
+  LessonPlan,
+  TeachingIntent,
+  TokenUsage,
+  LanguageMode,
+  TeacherPersona,
+  SavedSession,
+  FlowPhase,
+  BoardBlock,
+  QuizAnswer,
+} from '@/types';
+
 interface ClassroomViewProps {
-  classroomId: string;
+  classroom: Classroom;
   onBack: () => void;
 }
 
-export function ClassroomView({ classroomId, onBack }: ClassroomViewProps) {
-  const [transitionState, setTransitionState] = useState<'loading' | 'ready' | 'hidden'>('loading');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [canvasReady, setCanvasReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const PHASE_LABELS: Record<FlowPhase, { label: string; color: string }> = {
+  idle: { label: 'Ready', color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' },
+  loading: { label: 'Generating...', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+  introducing: { label: 'Introducing', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' },
+  explaining: { label: 'Explaining', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
+  exampling: { label: 'Example', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+  quizzing: { label: 'Quiz', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300' },
+  recapping: { label: 'Recap', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' },
+  completed: { label: 'Completed', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
+  error: { label: 'Error', color: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
+};
 
-  const boardRef = useRef<BoardCanvasHandle>(null);
-  const syncEngineRef = useRef<SyncEngine | null>(null);
-  const queryInputRef = useRef('');
-  const classroomIdRef = useRef(classroomId);
+export function ClassroomView({ classroom, onBack }: ClassroomViewProps) {
+  const flowControllerRef = useRef<FlowController | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lessonPlan, setLessonPlan] = useState<LessonPlan | null>(null);
 
-  const currentClassroom = useClassroomStore((s) => s.classrooms.find((c) => c.id === classroomId));
-  const playback = useTimelineStore((s) => s.playback);
-  const { renderSettings, currentMode, deviceProfile, setDeviceProfile, startTransition, endTransition } = useModeStore();
+  const {
+    phase, setPhase,
+    currentIntentIndex, setCurrentIntentIndex,
+    isSpeaking, setIsSpeaking,
+    speechProgress, speechText, setSpeechProgress,
+    boardBlocks, setBoardBlocks,
+    currentIntent, setCurrentIntent,
+    languageMode, setLanguageMode,
+    teacherPersona, setTeacherPersona,
+    teacherSpeed, setTeacherSpeed,
+    isMuted, setIsMuted,
+    elapsedTime, setElapsedTime,
+    activeQuiz, setActiveQuiz,
+    reset,
+  } = useFlowStore();
 
-  // Initialize device profile
+  const { updateClassroom, incrementSessions } = useClassroomStore();
+  const { recordUsage } = useTokenStore();
+  const { recordQuizAnswer, incrementTopics } = useProgressStore();
+
+  // Initialize FlowController
   useEffect(() => {
-    const profile = detectDevice();
-    setDeviceProfile(profile);
-  }, [setDeviceProfile]);
+    const fc = new FlowController();
+    flowControllerRef.current = fc;
 
-  // Initialize sync engine
-  useEffect(() => {
-    const sync = new SyncEngine(renderSettings);
-    sync.setCanvasEventHandler(async (event: TimelineEvent) => {
-      if (boardRef.current) {
-        await boardRef.current.processEvent(event);
-      }
+    // Wire callbacks
+    fc.onPhaseChange((p: FlowPhase) => setPhase(p));
+    fc.onBoardUpdate((blocks: BoardBlock[]) => setBoardBlocks(blocks));
+    fc.onQuiz((quiz: TeachingIntent['quiz']) => setActiveQuiz(quiz));
+    fc.onSpeechProgress((progress: number, text: string) => {
+      setSpeechProgress(progress, text);
+      setIsSpeaking(progress < 1);
     });
-    syncEngineRef.current = sync;
+    fc.onIntentChange((index: number, intent: TeachingIntent) => {
+      setCurrentIntentIndex(index);
+      setCurrentIntent(intent);
+    });
+    fc.onAutoSave(() => {
+      autoSaveSession();
+    });
+
+    // Restore teacher settings
+    fc.getSpeechEngine().setLanguageMode(languageMode);
+    fc.getSpeechEngine().setTeacherSpeed(teacherSpeed);
+    if (isMuted) {
+      fc.getSpeechEngine().setMuted(true);
+    }
+
+    // Try to restore session
+    const savedSession = storage.getSession();
+    if (savedSession && savedSession.classroom_id === classroom.id) {
+      fc.loadLessonPlan(savedSession.lessonPlan);
+      fc.jumpToIntent(savedSession.currentIntentIndex);
+      setLessonPlan(savedSession.lessonPlan);
+      setElapsedTime(savedSession.elapsedTime);
+      // Restore board blocks
+      for (const block of savedSession.boardBlocks) {
+        fc.getBoardManager().addBlock({
+          type: block.type,
+          zone: block.zone,
+          importance: block.importance,
+          persist: block.persist,
+          lifespan: block.lifespan,
+          text: block.text,
+          localizedText: block.localizedText,
+          formulaText: block.formulaText,
+          tableData: block.tableData,
+          graphData: block.graphData,
+        });
+      }
+      setBoardBlocks(fc.getBoardBlocks());
+    }
 
     return () => {
-      sync.destroy();
+      fc.stop();
+      autoSaveSession();
     };
   }, []);
 
-  // Update render settings when mode changes
+  // Update speech engine when settings change
   useEffect(() => {
-    if (syncEngineRef.current) {
-      syncEngineRef.current.updateRenderSettings(renderSettings);
-    }
-  }, [renderSettings]);
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+    fc.getSpeechEngine().setLanguageMode(languageMode);
+  }, [languageMode]);
 
-  // Handle transition animation
   useEffect(() => {
-    startTransition();
-    const timer = setTimeout(() => {
-      setTransitionState('ready');
-      endTransition();
-      setTimeout(() => setTransitionState('hidden'), 800);
-    }, 2500);
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+    fc.getSpeechEngine().setTeacherSpeed(teacherSpeed);
+  }, [teacherSpeed]);
 
-    return () => clearTimeout(timer);
-  }, [startTransition, endTransition]);
+  useEffect(() => {
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+    fc.getSpeechEngine().setMuted(isMuted);
+  }, [isMuted]);
 
-  // Generate lesson via API
-  const generateLesson = useCallback(
-    async (message: string): Promise<LessonTimeline> => {
+  // Timer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const fc = flowControllerRef.current;
+      if (fc && fc.getIsRunning()) {
+        setElapsedTime(fc.getElapsedTime());
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [setElapsedTime]);
+
+  // Auto-save session
+  const autoSaveSession = useCallback(() => {
+    const fc = flowControllerRef.current;
+    if (!fc || !lessonPlan) return;
+
+    const session: SavedSession = {
+      phase: fc.getPhase(),
+      currentIntentIndex: fc.getCurrentIndex(),
+      classroom_id: classroom.id,
+      lessonPlan,
+      boardBlocks: fc.getBoardBlocks(),
+      saved_at: new Date().toISOString(),
+      elapsedTime: fc.getElapsedTime(),
+    };
+    storage.saveSession(session);
+  }, [lessonPlan, classroom.id]);
+
+  // Generate lesson
+  const handleGenerateLesson = async (query: string) => {
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+
+    setPhase('loading');
+    setIsSpeaking(false);
+    setActiveQuiz(null);
+
+    try {
+      // Build context from memory
+      const context = classroomMemory.buildContextForPrompt(classroom.id);
+
       const response = await fetch('/api/lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          classroom_id: classroomIdRef.current,
-          query: message,
-          classNumber: currentClassroom?.classNumber,
-          stream: currentClassroom?.stream,
-          subject: currentClassroom?.subject,
-          subjectLabel: currentClassroom?.subjectLabel,
+          classroom_id: classroom.id,
+          query,
+          classNumber: classroom.classNumber,
+          subject: classroom.subject,
+          subjectLabel: classroom.subjectLabel,
+          teacher_persona: teacherPersona,
+          context,
         }),
       });
 
@@ -105,258 +216,295 @@ export function ClassroomView({ classroomId, onBack }: ClassroomViewProps) {
         throw new Error('Failed to generate lesson');
       }
 
-      return response.json();
-    },
-    [currentClassroom]
-  );
+      const lesson: LessonPlan = await response.json();
+      setLessonPlan(lesson);
 
-  // Start a lesson with a query
-  const handleSendMessage = useCallback(
-    async (message: string) => {
-      queryInputRef.current = message;
-      setIsGenerating(true);
-      setError(null);
-
-      try {
-        const timeline = await generateLesson(message);
-
-        // Load timeline into sync engine
-        if (syncEngineRef.current && boardRef.current) {
-          boardRef.current.clear();
-          syncEngineRef.current.loadTimeline(timeline);
-          syncEngineRef.current.play();
+      // Track tokens
+      const tokenHeader = response.headers.get('X-Token-Usage');
+      if (tokenHeader) {
+        try {
+          const tokenData: TokenUsage = JSON.parse(tokenHeader);
+          recordUsage(tokenData);
+        } catch {
+          // Ignore token parsing errors
         }
-      } catch (err: any) {
-        setError(err.message || 'Failed to generate lesson');
-      } finally {
-        setIsGenerating(false);
       }
-    },
-    [generateLesson]
-  );
 
-  // Playback controls
-  const handlePlay = useCallback(() => {
-    syncEngineRef.current?.play();
-  }, []);
+      // Save to memory
+      classroomMemory.addEntry(classroom.id, query, lesson);
 
-  const handlePause = useCallback(() => {
-    syncEngineRef.current?.pause();
-  }, []);
+      // Update classroom
+      incrementSessions(classroom.id);
+      updateClassroom(classroom.id, {
+        last_session_summary: lesson.title,
+        current_lesson_id: lesson.lesson_id,
+      });
 
-  const handleSeek = useCallback((time: number) => {
-    syncEngineRef.current?.seek(time);
-  }, []);
-
-  const handleRestart = useCallback(() => {
-    syncEngineRef.current?.stop();
-    boardRef.current?.clear();
-    if (queryInputRef.current) {
-      handleSendMessage(queryInputRef.current);
+      // Load lesson into FlowController and play
+      fc.loadLessonPlan(lesson);
+      fc.play();
+    } catch (err) {
+      console.error('Lesson generation failed:', err);
+      setPhase('error');
     }
-  }, [handleSendMessage]);
-
-  // Subject-specific suggestions
-  const suggestions = getSuggestions(currentClassroom?.subject);
-
-  return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Transition Overlay */}
-      <ClassroomTransition
-        isVisible={transitionState !== 'hidden'}
-        status={transitionState === 'loading' ? 'loading' : 'ready'}
-        classroomName={currentClassroom?.name}
-        subject={`${currentClassroom?.subjectIcon || ''} ${currentClassroom?.subjectLabel || ''}`}
-      />
-
-      {/* Top Bar */}
-      <header className="relative z-20 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex items-center justify-between px-3 sm:px-4 h-12">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={onBack}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Separator orientation="vertical" className="h-5" />
-            <div className="flex items-center gap-2">
-              <span className="text-base">{currentClassroom?.subjectIcon}</span>
-              <div className="min-w-0">
-                <h1 className="text-xs font-semibold truncate max-w-[200px] sm:max-w-none">
-                  {currentClassroom?.name || 'Classroom'}
-                </h1>
-              </div>
-            </div>
-            <Badge variant="outline" className="text-[9px] px-1.5 py-0 hidden sm:flex">
-              {currentClassroom?.subjectLabel}
-            </Badge>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <ModeController />
-            <Separator orientation="vertical" className="h-5 mx-1" />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => setIsMuted(!isMuted)}
-            >
-              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            </Button>
-            <Badge
-              variant="secondary"
-              className={`text-[9px] px-1.5 py-0 gap-1 ${
-                playback.status === 'playing'
-                  ? 'bg-emerald-500/10 text-emerald-600'
-                  : 'bg-muted'
-              }`}
-            >
-              {playback.status === 'playing' && (
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              )}
-              {playback.status === 'idle' && 'Ready'}
-              {playback.status === 'loading' && 'Loading...'}
-              {playback.status === 'playing' && 'Teaching'}
-              {playback.status === 'paused' && 'Paused'}
-              {playback.status === 'completed' && 'Complete'}
-              {playback.status === 'error' && 'Error'}
-            </Badge>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Canvas Area */}
-      <main className="flex-1 flex flex-col min-h-0">
-        {/* Canvas */}
-        <div className="flex-1 min-h-0 p-2 sm:p-3">
-          <div className="w-full h-full bg-muted/30 rounded-lg overflow-hidden shadow-inner">
-            {playback.status === 'idle' && !isGenerating ? (
-              /* Welcome state */
-              <div className="w-full h-full flex flex-col items-center justify-center text-center px-4">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                >
-                  <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/20">
-                    <span className="text-3xl">{currentClassroom?.subjectIcon || '📚'}</span>
-                  </div>
-                  <h2 className="text-lg font-bold text-foreground mb-1">
-                    {currentClassroom?.subjectLabel || 'Ready to Learn'}
-                  </h2>
-                  <p className="text-xs text-muted-foreground mb-1">
-                    {currentClassroom?.name}
-                  </p>
-                  <p className="text-sm text-muted-foreground max-w-md mb-4">
-                    Type a topic, question, or concept below and the AI teacher will
-                    create an interactive lesson on the board.
-                  </p>
-                  <div className="flex flex-wrap gap-2 justify-center">
-                    {suggestions.map((suggestion) => (
-                      <Button
-                        key={suggestion}
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => handleSendMessage(suggestion)}
-                      >
-                        {suggestion}
-                      </Button>
-                    ))}
-                  </div>
-                </motion.div>
-              </div>
-            ) : error ? (
-              /* Error state */
-              <div className="w-full h-full flex flex-col items-center justify-center">
-                <AlertCircle className="h-10 w-10 text-destructive mb-3" />
-                <p className="text-sm font-medium text-destructive">{error}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3 h-8"
-                  onClick={() => setError(null)}
-                >
-                  Try Again
-                </Button>
-              </div>
-            ) : (
-              /* Canvas renderer */
-              <BoardCanvas
-                ref={boardRef}
-                renderSettings={renderSettings}
-                onReady={() => setCanvasReady(true)}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Playback Controls */}
-        {playback.status !== 'idle' && (
-          <div className="border-t border-border/40 bg-muted/30 px-2 sm:px-3 py-2">
-            <PlaybackControls
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onSeek={handleSeek}
-              onRestart={handleRestart}
-              isMuted={isMuted}
-              onToggleMute={() => setIsMuted(!isMuted)}
-            />
-          </div>
-        )}
-
-        {/* Input Bar */}
-        <div className="border-t border-border/60 bg-background px-3 sm:px-4 py-3">
-          <InputBar
-            onSend={handleSendMessage}
-            isLoading={isGenerating}
-            disabled={isGenerating}
-            placeholder={
-              isGenerating
-                ? 'Teacher is preparing...'
-                : playback.status === 'playing'
-                ? 'Ask a follow-up question...'
-                : 'What would you like to learn?'
-            }
-          />
-          <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-            Press <kbd className="px-1 py-0.5 rounded bg-muted text-[10px] font-mono">/</kbd> to focus input &middot;{' '}
-            Mode: <span className="font-medium capitalize">{currentMode}</span>
-            {deviceProfile && (
-              <> &middot; GPU: {deviceProfile.gpuTier} tier</>
-            )}
-          </p>
-        </div>
-      </main>
-    </div>
-  );
-}
-
-function getSuggestions(subject?: string): string[] {
-  if (!subject) return ["What is photosynthesis?", "Explain the solar system", "How do plants grow?"];
-
-  const suggestionsBySubject: Record<string, string[]> = {
-    'Math': ['Solve algebraic equations', 'Explain geometry basics', 'Fractions and decimals'],
-    'Mathematics': ['Solve quadratic equations', 'Explain trigonometry', 'Algebra practice'],
-    'Science': ['What is photosynthesis?', 'Explain the water cycle', 'States of matter'],
-    'Physics': ['Explain Newton\'s Laws', 'What is gravity?', 'How does light travel?'],
-    'Chemistry': ['What is an atom?', 'Explain chemical reactions', 'The periodic table'],
-    'Biology': ['How cells work', 'Explain DNA', 'Human body systems'],
-    'English': ['Grammar rules', 'How to write an essay', 'Vocabulary building'],
-    'English For Today': ['Reading comprehension', 'Grammar practice', 'Writing skills'],
-    'ICT': ['What is the internet?', 'How computers work', 'Introduction to programming'],
-    'Bangla': ['বাংলা ব্যাকরণ', 'রচনা লেখা', 'কবিতা ব্যাখ্যা'],
-    'BGS': ['History of Bangladesh', 'Geography of Bangladesh', 'Culture and heritage'],
-    'Bangladesh & Global Studies': ['Geography of Bangladesh', 'Bangladesh independence', 'World geography'],
-    'History': ['Ancient civilizations', 'World War II', 'Medieval period'],
-    'Geography': ['Climate zones', 'Continents and oceans', 'Map reading'],
-    'Accounting': ['Journal entries', 'Balance sheet', 'Financial statements'],
-    'Economics': ['Supply and demand', 'Market structures', 'GDP explained'],
-    'Islam': ['পাঁচ ওয়াক্ত নামাজ', 'ইসলামের ইতিহাস', 'কুরআনের পরিচয়'],
   };
 
-  return suggestionsBySubject[subject] || [`Explain ${subject} basics`, `What is ${subject}?`, `${subject} important topics`];
+  // Generate follow-up
+  const handleFollowUp = async (query: string) => {
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+
+    fc.stop();
+    setPhase('loading');
+    setActiveQuiz(null);
+
+    try {
+      const context = classroomMemory.buildContextForPrompt(classroom.id);
+
+      const response = await fetch('/api/lesson', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          classroom_id: classroom.id,
+          query,
+          classNumber: classroom.classNumber,
+          subject: classroom.subject,
+          subjectLabel: classroom.subjectLabel,
+          teacher_persona: teacherPersona,
+          context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate follow-up');
+      }
+
+      const lesson: LessonPlan = await response.json();
+      setLessonPlan(lesson);
+
+      // Track tokens
+      const tokenHeader = response.headers.get('X-Token-Usage');
+      if (tokenHeader) {
+        try {
+          const tokenData: TokenUsage = JSON.parse(tokenHeader);
+          recordUsage(tokenData);
+        } catch {
+          // Ignore
+        }
+      }
+
+      classroomMemory.addEntry(classroom.id, query, lesson);
+      updateClassroom(classroom.id, { last_session_summary: lesson.title });
+
+      fc.loadLessonPlan(lesson);
+      fc.play();
+    } catch (err) {
+      console.error('Follow-up generation failed:', err);
+      setPhase('error');
+    }
+  };
+
+  // Handle user input
+  const handleInput = (query: string) => {
+    if (phase === 'idle' || phase === 'completed' || phase === 'error') {
+      handleGenerateLesson(query);
+    } else {
+      // During lesson, treat as follow-up
+      handleFollowUp(query);
+    }
+  };
+
+  // Handle quiz answer
+  const handleQuizAnswer = (answer: string) => {
+    const fc = flowControllerRef.current;
+    if (!fc || !activeQuiz) return;
+
+    const isCorrect = answer === activeQuiz.correctAnswer;
+
+    // Record progress
+    const quizAnswer: QuizAnswer = {
+      question: activeQuiz.questionText.en,
+      studentAnswer: answer,
+      correctAnswer: activeQuiz.correctAnswer,
+      isCorrect,
+      timestamp: new Date().toISOString(),
+      classroom_id: classroom.id,
+      subject: classroom.subject,
+    };
+    recordQuizAnswer(quizAnswer);
+
+    if (!isCorrect && activeQuiz.explanation) {
+      useProgressStore.getState().addWeakArea(classroom.subject, activeQuiz.questionText.en.substring(0, 50));
+    }
+
+    setActiveQuiz(null);
+    fc.submitQuizAnswer(answer);
+  };
+
+  // Toggle pause/play
+  const handleTogglePause = () => {
+    const fc = flowControllerRef.current;
+    if (!fc) return;
+
+    if (fc.getIsPaused()) {
+      fc.play();
+    } else {
+      fc.pause();
+    }
+  };
+
+  // Toggle mute
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted);
+  };
+
+  // Format time
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const totalIntents = lessonPlan?.intents.length || 0;
+  const phaseInfo = PHASE_LABELS[phase] || PHASE_LABELS.idle;
+
+  return (
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
+      {/* Top Bar */}
+      <header className="shrink-0 border-b border-border bg-card/80 backdrop-blur-sm px-3 py-2 flex items-center gap-2 z-30">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-lg">{classroom.subjectIcon}</span>
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold truncate">{classroom.name}</h1>
+            <p className="text-[10px] text-muted-foreground">
+              Class {classroom.classNumber}
+              {classroom.stream ? ` • ${classroom.stream}` : ''} • {formatTime(elapsedTime)}
+            </p>
+          </div>
+        </div>
+
+        <Badge variant="secondary" className={`text-[10px] shrink-0 ${phaseInfo.color}`}>
+          {phaseInfo.label}
+        </Badge>
+
+        {/* Language Mode Toggle */}
+        <Select value={languageMode} onValueChange={(v) => setLanguageMode(v as LanguageMode)}>
+          <SelectTrigger className="h-7 w-16 text-[10px] shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">EN</SelectItem>
+            <SelectItem value="bn">বাং</SelectItem>
+            <SelectItem value="both">Both</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Persona Selector */}
+        <Select value={teacherPersona} onValueChange={(v) => setTeacherPersona(v as TeacherPersona)}>
+          <SelectTrigger className="h-7 w-7 p-0 shrink-0 flex items-center justify-center">
+            <Settings className="h-3.5 w-3.5" />
+          </SelectTrigger>
+          <SelectContent>
+            {TEACHER_PERSONAS.map((p) => (
+              <SelectItem key={p.value} value={p.value}>
+                {p.icon} {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Mute */}
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={handleToggleMute}>
+          {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+        </Button>
+
+        {/* Fullscreen */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 hidden sm:flex"
+          onClick={() => setIsFullscreen(!isFullscreen)}
+        >
+          {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </Button>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* Spatial Board */}
+        <SpatialBoard
+          blocks={boardBlocks}
+          languageMode={languageMode}
+          className="absolute inset-0"
+        />
+
+        {/* Speech Indicator */}
+        <SpeechIndicator
+          isSpeaking={isSpeaking}
+          isPaused={flowControllerRef.current?.getIsPaused() || false}
+          isMuted={isMuted}
+          speechText={speechText}
+          speechProgress={speechProgress}
+          phase={phase}
+          currentIntentIndex={currentIntentIndex}
+          totalIntents={totalIntents}
+          onToggleMute={handleToggleMute}
+          onTogglePause={handleTogglePause}
+        />
+
+        {/* Quiz Overlay */}
+        {activeQuiz && (
+          <QuizOverlay
+            quiz={activeQuiz}
+            languageMode={languageMode}
+            onSubmit={handleQuizAnswer}
+          />
+        )}
+
+        {/* Token Display */}
+        <div className="absolute top-2 right-2 z-20">
+          <TokenDisplay />
+        </div>
+
+        {/* Progress indicator */}
+        {totalIntents > 0 && (
+          <div className="absolute top-2 left-2 z-20">
+            <div className="bg-card/80 backdrop-blur-sm rounded-lg px-2 py-1 border border-border/50">
+              <div className="flex gap-0.5">
+                {lessonPlan?.intents.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1 w-3 rounded-full transition-colors ${
+                      i < currentIntentIndex
+                        ? 'bg-emerald-500'
+                        : i === currentIntentIndex
+                        ? 'bg-amber-500'
+                        : 'bg-muted'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input Bar */}
+      <InputBar
+        onSubmit={handleInput}
+        isLoading={phase === 'loading'}
+        placeholder={
+          phase === 'idle'
+            ? 'Enter a topic to start learning...'
+            : phase === 'completed'
+            ? 'Ask another question or enter a new topic...'
+            : 'Ask a follow-up question...'
+        }
+      />
+    </div>
+  );
 }

@@ -1,50 +1,45 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useState, useSyncExternalStore } from 'react';
 import { HomeView } from '@/components/HomeView';
 import { ClassroomView } from '@/components/ClassroomView';
+import type { Classroom } from '@/types';
 
-type View = { type: 'home' } | { type: 'classroom'; classroomId: string };
+const emptySubscribe = () => () => {};
 
-export default function App() {
-  const [view, setView] = useState<View>({ type: 'home' });
+export default function Page() {
+  const [activeClassroom, setActiveClassroom] = useState<Classroom | null>(null);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
 
-  const handleEnterClassroom = useCallback((classroomId: string) => {
-    setView({ type: 'classroom', classroomId });
-  }, []);
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-amber-500 to-rose-500 flex items-center justify-center mx-auto mb-3 animate-pulse">
+            <span className="text-white text-lg">🎓</span>
+          </div>
+          <p className="text-sm text-muted-foreground">Loading Soren Classroom...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const handleBackToHome = useCallback(() => {
-    setView({ type: 'home' });
-  }, []);
+  if (activeClassroom) {
+    return (
+      <ClassroomView
+        classroom={activeClassroom}
+        onBack={() => setActiveClassroom(null)}
+      />
+    );
+  }
 
   return (
-    <AnimatePresence mode="wait">
-      {view.type === 'home' ? (
-        <motion.div
-          key="home"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <HomeView onEnterClassroom={handleEnterClassroom} />
-        </motion.div>
-      ) : (
-        <motion.div
-          key={`classroom-${view.classroomId}`}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.4 }}
-          className="h-screen"
-        >
-          <ClassroomView
-            classroomId={view.classroomId}
-            onBack={handleBackToHome}
-          />
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <HomeView
+      onOpenClassroom={(classroom) => setActiveClassroom(classroom)}
+    />
   );
 }

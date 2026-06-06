@@ -4,8 +4,6 @@ import { useState, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -20,142 +18,113 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Plus, Sparkles } from 'lucide-react';
-import type { ClassNumber, Stream, SubjectId, PerformanceMode } from '@/types';
-import { CLASS_CONFIG, STREAM_OPTIONS, getSubjectsForClass } from '@/config/curriculum';
+import type { ClassNumber, Stream, TeacherPersona, CreateClassroomRequest } from '@/types';
+import { CLASS_OPTIONS, STREAM_OPTIONS, getSubjectsForClass, TEACHER_PERSONAS } from '@/config/curriculum';
+import { Plus } from 'lucide-react';
 
 interface CreateClassroomDialogProps {
-  onCreate: (data: {
-    classNumber: ClassNumber;
-    stream?: Stream;
-    subject: SubjectId;
-    subjectLabel: string;
-    subjectIcon: string;
-    name?: string;
-    mode_preset?: PerformanceMode;
-  }) => void;
+  onCreate: (req: CreateClassroomRequest) => void;
+  trigger?: React.ReactNode;
 }
 
-const CLASS_OPTIONS: { value: ClassNumber; label: string }[] = [
-  { value: 6, label: 'Class 6' },
-  { value: 7, label: 'Class 7' },
-  { value: 8, label: 'Class 8' },
-  { value: 9, label: 'Class 9' },
-  { value: 10, label: 'Class 10' },
-];
-
-export function CreateClassroomDialog({ onCreate }: CreateClassroomDialogProps) {
+export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDialogProps) {
   const [open, setOpen] = useState(false);
   const [classNumber, setClassNumber] = useState<ClassNumber>(6);
   const [stream, setStream] = useState<Stream | undefined>(undefined);
-  const [selectedSubject, setSelectedSubject] = useState<string>('');
-  const [customName, setCustomName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [teacherPersona, setTeacherPersona] = useState<TeacherPersona>('friendly_teacher');
+  const [name, setName] = useState('');
 
-  const hasStreams = CLASS_CONFIG[classNumber].hasStreams;
-  const subjects = useMemo(
-    () => getSubjectsForClass(classNumber, stream),
-    [classNumber, stream]
-  );
+  const subjects = getSubjectsForClass(classNumber, stream);
+  const needsStream = classNumber === 9 || classNumber === 10;
 
-  // Reset stream when class changes to non-stream class
-  const handleClassChange = (value: string) => {
-    const newClass = parseInt(value) as ClassNumber;
-    setClassNumber(newClass);
-    if (!CLASS_CONFIG[newClass].hasStreams) {
-      setStream(undefined);
-    } else {
-      setStream('Science');
-    }
-    setSelectedSubject('');
+  // Track class/stream as a key to reset subject when they change
+  const selectionKey = useMemo(() => `${classNumber}-${stream || 'none'}`, [classNumber, stream]);
+  const [prevKey, setPrevKey] = useState(selectionKey);
+  if (selectionKey !== prevKey) {
+    setPrevKey(selectionKey);
+    setSubject('');
+  }
+
+  const selectedSubject = subjects.find((s) => s.value === subject);
+
+  const handleCreate = () => {
+    if (!subject || !selectedSubject) return;
+
+    const req: CreateClassroomRequest = {
+      classNumber,
+      stream: needsStream ? stream : undefined,
+      subject,
+      subjectLabel: selectedSubject.label,
+      subjectIcon: selectedSubject.icon,
+      name: name.trim() || undefined,
+      teacher_persona: teacherPersona,
+    };
+
+    onCreate(req);
+    setOpen(false);
+    resetForm();
   };
 
-  // Reset subject when stream changes
-  const handleStreamChange = (value: string) => {
-    setStream(value as Stream);
-    setSelectedSubject('');
-  };
-
-  const currentSubject = subjects.find((s) => s.id === selectedSubject);
-
-  const handleCreate = async () => {
-    if (!currentSubject) return;
-    setIsCreating(true);
-    try {
-      await onCreate({
-        classNumber,
-        stream,
-        subject: currentSubject.id as SubjectId,
-        subjectLabel: currentSubject.label,
-        subjectIcon: currentSubject.icon,
-        name: customName.trim() || undefined,
-        mode_preset: 'auto',
-      });
-      setCustomName('');
-      setSelectedSubject('');
-      setStream(undefined);
-      setOpen(false);
-    } finally {
-      setIsCreating(false);
-    }
+  const resetForm = () => {
+    setClassNumber(6);
+    setStream(undefined);
+    setSubject('');
+    setTeacherPersona('friendly_teacher');
+    setName('');
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="h-10 gap-2 font-medium" size="sm">
-          <Plus className="h-4 w-4" />
-          Create Classroom
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-amber-500" />
+        {trigger || (
+          <Button className="gap-2">
+            <Plus className="h-4 w-4" />
             New Classroom
-          </DialogTitle>
-          <DialogDescription>
-            Set up a new AI-powered classroom. Choose class, stream, and subject to get started.
-          </DialogDescription>
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create New Classroom</DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
-          {/* Class Selection */}
-          <div className="grid gap-2">
-            <Label htmlFor="class" className="text-xs font-medium">
-              Class
-            </Label>
-            <Select value={String(classNumber)} onValueChange={handleClassChange}>
-              <SelectTrigger id="class" className="h-10">
+        <div className="space-y-4 py-2">
+          {/* Class Number */}
+          <div className="space-y-2">
+            <Label>Class</Label>
+            <Select
+              value={String(classNumber)}
+              onValueChange={(v) => setClassNumber(Number(v) as ClassNumber)}
+            >
+              <SelectTrigger>
                 <SelectValue placeholder="Select class" />
               </SelectTrigger>
               <SelectContent>
                 {CLASS_OPTIONS.map((c) => (
-                  <SelectItem key={c.value} value={String(c.value)}>
-                    {c.label}
+                  <SelectItem key={c} value={String(c)}>
+                    Class {c}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          {/* Stream Selection (only for class 9-10) */}
-          {hasStreams && (
-            <div className="grid gap-2">
-              <Label htmlFor="stream" className="text-xs font-medium">
-                Stream
-              </Label>
-              <Select value={stream || 'Science'} onValueChange={handleStreamChange}>
-                <SelectTrigger id="stream" className="h-10">
+          {/* Stream (for class 9-10) */}
+          {needsStream && (
+            <div className="space-y-2">
+              <Label>Stream</Label>
+              <Select
+                value={stream || ''}
+                onValueChange={(v) => setStream(v as Stream)}
+              >
+                <SelectTrigger>
                   <SelectValue placeholder="Select stream" />
                 </SelectTrigger>
                 <SelectContent>
                   {STREAM_OPTIONS.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      <div className="flex items-center gap-2">
-                        <span>{s.icon}</span>
-                        <span>{s.label}</span>
-                      </div>
+                    <SelectItem key={s} value={s}>
+                      {s}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -163,22 +132,37 @@ export function CreateClassroomDialog({ onCreate }: CreateClassroomDialogProps) 
             </div>
           )}
 
-          {/* Subject Selection */}
-          <div className="grid gap-2">
-            <Label htmlFor="subject" className="text-xs font-medium">
-              Subject
-            </Label>
-            <Select value={selectedSubject} onValueChange={setSelectedSubject}>
-              <SelectTrigger id="subject" className="h-10">
+          {/* Subject */}
+          <div className="space-y-2">
+            <Label>Subject</Label>
+            <Select value={subject} onValueChange={setSubject}>
+              <SelectTrigger>
                 <SelectValue placeholder="Select subject" />
               </SelectTrigger>
-              <SelectContent className="max-h-[280px]">
+              <SelectContent>
                 {subjects.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{s.icon}</span>
-                      <span>{s.label}</span>
-                    </div>
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.icon} {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Teacher Persona */}
+          <div className="space-y-2">
+            <Label>Teacher Style</Label>
+            <Select
+              value={teacherPersona}
+              onValueChange={(v) => setTeacherPersona(v as TeacherPersona)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select teacher style" />
+              </SelectTrigger>
+              <SelectContent>
+                {TEACHER_PERSONAS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.icon} {p.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -186,28 +170,23 @@ export function CreateClassroomDialog({ onCreate }: CreateClassroomDialogProps) 
           </div>
 
           {/* Custom Name */}
-          <div className="grid gap-2">
-            <Label htmlFor="name" className="text-xs font-medium">
-              Custom Name <span className="text-muted-foreground">(optional)</span>
-            </Label>
+          <div className="space-y-2">
+            <Label>Classroom Name (optional)</Label>
             <Input
-              id="name"
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              placeholder="e.g., Exam Prep — Algebra"
-              className="h-10"
+              placeholder={selectedSubject ? `${selectedSubject.label} - Class ${classNumber}` : 'Auto-generated'}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
           </div>
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} className="h-10">
-            Cancel
+          <Button
+            className="w-full"
+            onClick={handleCreate}
+            disabled={!subject}
+          >
+            Create Classroom
           </Button>
-          <Button onClick={handleCreate} disabled={!currentSubject || isCreating} className="h-10">
-            {isCreating ? 'Creating...' : 'Create Classroom'}
-          </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

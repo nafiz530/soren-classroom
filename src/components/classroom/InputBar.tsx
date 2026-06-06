@@ -2,78 +2,121 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Mic, Send, Loader2, Sparkles } from 'lucide-react';
+import { Send, Mic, MicOff, Loader2 } from 'lucide-react';
 
 interface InputBarProps {
-  onSend: (message: string) => void;
-  isLoading?: boolean;
+  onSubmit: (query: string) => void;
+  isLoading: boolean;
   placeholder?: string;
-  disabled?: boolean;
 }
 
-export function InputBar({
-  onSend,
-  isLoading = false,
-  placeholder = 'Ask a question or continue the lesson...',
-  disabled = false,
-}: InputBarProps) {
-  const [message, setMessage] = useState('');
+export function InputBar({ onSubmit, isLoading, placeholder }: InputBarProps) {
+  const [value, setValue] = useState('');
+  const [isListening, setIsListening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (message.trim() && !isLoading && !disabled) {
-      onSend(message.trim());
-      setMessage('');
+  const handleSubmit = () => {
+    const trimmed = value.trim();
+    if (!trimmed || isLoading) return;
+    onSubmit(trimmed);
+    setValue('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  // Voice input using Web Speech API
+  const toggleVoice = () => {
+    if (typeof window === 'undefined' || !window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognitionAPI();
+      recognition.lang = 'bn-BD';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = event.results[0]?.[0]?.transcript || '';
+        setValue((prev) => prev + transcript);
+        setIsListening(false);
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
     }
   };
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '/' && !disabled && document.activeElement !== inputRef.current) {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [disabled]);
+    if (!isLoading) {
+      inputRef.current?.focus();
+    }
+  }, [isLoading]);
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2 w-full">
-      <div className="relative flex-1">
-        <Input
+    <div className="flex items-center gap-2 p-3 border-t border-border bg-card/80 backdrop-blur-sm">
+      <div className="flex-1 relative">
+        <input
           ref={inputRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder={placeholder}
-          disabled={disabled || isLoading}
-          className="h-10 pl-3 pr-10 text-sm bg-muted/50 border-border/50 focus:bg-background focus:border-border transition-colors"
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder || 'Ask a question or enter a topic...'}
+          disabled={isLoading}
+          className="w-full px-3 py-2.5 text-sm rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 placeholder:text-muted-foreground"
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-          disabled
-        >
-          <Mic className="h-4 w-4" />
-        </Button>
       </div>
+
+      {/* Voice input button */}
       <Button
-        type="submit"
-        size="sm"
-        disabled={!message.trim() || isLoading || disabled}
-        className="h-10 gap-1.5 px-4"
+        size="icon"
+        variant={isListening ? 'default' : 'ghost'}
+        onClick={toggleVoice}
+        className="shrink-0 h-9 w-9"
+        disabled={isLoading}
+      >
+        {isListening ? (
+          <MicOff className="h-4 w-4" />
+        ) : (
+          <Mic className="h-4 w-4" />
+        )}
+      </Button>
+
+      {/* Submit button */}
+      <Button
+        size="icon"
+        onClick={handleSubmit}
+        disabled={!value.trim() || isLoading}
+        className="shrink-0 h-9 w-9 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600"
       >
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <Send className="h-4 w-4" />
         )}
-        <span className="hidden sm:inline text-xs">{isLoading ? 'Generating...' : 'Send'}</span>
       </Button>
-    </form>
+    </div>
   );
 }
