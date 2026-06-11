@@ -23,6 +23,7 @@ import { useProgressStore } from '@/stores/progressStore';
 import { FlowController } from '@/engine/FlowController';
 import { storage } from '@/services/storage';
 import { classroomMemory } from '@/services/classroomMemory';
+import { generateLesson, generateFollowUp } from '@/services/lessonService';
 import { TEACHER_PERSONAS } from '@/config/curriculum';
 import type {
   Classroom,
@@ -198,36 +199,25 @@ export function ClassroomView({ classroom, onBack }: ClassroomViewProps) {
       // Build context from memory
       const context = classroomMemory.buildContextForPrompt(classroom.id);
 
-      const response = await fetch('/api/lesson', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          classroom_id: classroom.id,
-          query,
-          classNumber: classroom.classNumber,
-          subject: classroom.subject,
-          subjectLabel: classroom.subjectLabel,
-          teacher_persona: teacherPersona,
-          context,
-        }),
+      const result = await generateLesson({
+        classroom_id: classroom.id,
+        query,
+        classNumber: classroom.classNumber,
+        subject: classroom.subject,
+        subjectLabel: classroom.subjectLabel,
+        teacher_persona: teacherPersona,
+        context,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate lesson');
-      }
-
-      const lesson: LessonPlan = await response.json();
+      const lesson: LessonPlan = result.lesson;
       setLessonPlan(lesson);
 
       // Track tokens
-      const tokenHeader = response.headers.get('X-Token-Usage');
-      if (tokenHeader) {
-        try {
-          const tokenData: TokenUsage = JSON.parse(tokenHeader);
-          recordUsage(tokenData);
-        } catch {
-          // Ignore token parsing errors
-        }
+      try {
+        const tokenData: TokenUsage = result.tokens;
+        recordUsage(tokenData);
+      } catch {
+        // Ignore token parsing errors
       }
 
       // Save to memory
@@ -261,36 +251,25 @@ export function ClassroomView({ classroom, onBack }: ClassroomViewProps) {
     try {
       const context = classroomMemory.buildContextForPrompt(classroom.id);
 
-      const response = await fetch('/api/lesson', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          classroom_id: classroom.id,
-          query,
-          classNumber: classroom.classNumber,
-          subject: classroom.subject,
-          subjectLabel: classroom.subjectLabel,
-          teacher_persona: teacherPersona,
-          context,
-        }),
+      const result = await generateFollowUp({
+        classroom_id: classroom.id,
+        query,
+        classNumber: classroom.classNumber,
+        subject: classroom.subject,
+        subjectLabel: classroom.subjectLabel,
+        teacher_persona: teacherPersona,
+        context,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate follow-up');
-      }
-
-      const lesson: LessonPlan = await response.json();
+      const lesson: LessonPlan = result.lesson;
       setLessonPlan(lesson);
 
       // Track tokens
-      const tokenHeader = response.headers.get('X-Token-Usage');
-      if (tokenHeader) {
-        try {
-          const tokenData: TokenUsage = JSON.parse(tokenHeader);
-          recordUsage(tokenData);
-        } catch {
-          // Ignore
-        }
+      try {
+        const tokenData: TokenUsage = result.tokens;
+        recordUsage(tokenData);
+      } catch {
+        // Ignore
       }
 
       classroomMemory.addEntry(classroom.id, query, lesson);
