@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "Real-time AI-powered teaching experiences for Bangladesh Curriculum (Class 6-10). Flow-based, adaptive, spatially intelligent classroom simulation.",
   keywords: ["Soren", "AI Teacher", "Bangladesh Curriculum", "Education", "Classroom", "Interactive Learning"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/logo.svg",
   },
 };
 

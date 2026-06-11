@@ -1,4 +1,3 @@
-import ZAI from 'z-ai-web-dev-sdk';
 import type {
   LessonPlan,
   TeachingIntent,
@@ -7,7 +6,7 @@ import type {
   TeachingMode,
 } from '@/types';
 
-// ---- Fallback lesson plans (when AI is unavailable) ----
+// ---- Fallback lesson (when AI is unavailable) ----
 
 function createFallbackLesson(
   query: string,
@@ -25,11 +24,7 @@ function createFallbackLesson(
       content: {
         speech: `Hello! Today we are going to learn about ${safeQuery}. This is an important topic for Class ${classNumber} ${subjectLabel}. Let's begin!`,
         speechBn: `হ্যালো! আজ আমরা ${safeQuery} সম্পর্কে শিখবো। এটি ক্লাস ${classNumber} ${subjectLabel} এর জন্য একটি গুরুত্বপূর্ণ বিষয়। চলুন শুরু করি!`,
-        board: {
-          type: 'definition',
-          text: `Topic: ${safeQuery}`,
-          textBn: `বিষয়: ${safeQuery}`,
-        },
+        board: { type: 'definition', text: `Topic: ${safeQuery}`, textBn: `বিষয়: ${safeQuery}` },
       },
       priority: 'high',
       actions: ['speak', 'board_write'],
@@ -39,11 +34,7 @@ function createFallbackLesson(
       content: {
         speech: `Let me explain the core concept of ${safeQuery}. Understanding this is essential for your ${subjectLabel} studies.`,
         speechBn: `আসুন ${safeQuery} এর মূল ধারণাটি ব্যাখ্যা করি। এটি বোঝা আপনার ${subjectLabel} পড়াশোনার জন্য অপরিহার্য।`,
-        board: {
-          type: 'concept',
-          text: `Core Concept of ${safeQuery}`,
-          textBn: `${safeQuery} এর মূল ধারণা`,
-        },
+        board: { type: 'concept', text: `Core Concept of ${safeQuery}`, textBn: `${safeQuery} এর মূল ধারণা` },
       },
       priority: 'high',
       actions: ['speak', 'board_write'],
@@ -53,11 +44,7 @@ function createFallbackLesson(
       content: {
         speech: `Let me give you a practical example. In ${subjectLabel}, we see applications of ${safeQuery} everywhere.`,
         speechBn: `একটি ব্যবহারিক উদাহরণ দিই। ${subjectLabel} এ আমরা ${safeQuery} এর প্রয়োগ সর্বত্র দেখতে পাই।`,
-        board: {
-          type: 'example',
-          text: `Example: ${safeQuery} in practice`,
-          textBn: `উদাহরণ: ব্যবহারিক ${safeQuery}`,
-        },
+        board: { type: 'example', text: `Example: ${safeQuery} in practice`, textBn: `উদাহরণ: ব্যবহারিক ${safeQuery}` },
       },
       priority: 'medium',
       actions: ['speak', 'board_write'],
@@ -67,11 +54,7 @@ function createFallbackLesson(
       content: {
         speech: `Now let's test your understanding! I have a question for you about ${safeQuery}.`,
         speechBn: `এখন আসুন আপনার বোঝাপড়া পরীক্ষা করি! ${safeQuery} সম্পর্কে আমার একটি প্রশ্ন আছে।`,
-        board: {
-          type: 'definition',
-          text: `Quiz Time!`,
-          textBn: `কুইজ টাইম!`,
-        },
+        board: { type: 'definition', text: `Quiz Time!`, textBn: `কুইজ টাইম!` },
       },
       priority: 'high',
       actions: ['speak', 'board_write', 'quiz'],
@@ -96,13 +79,9 @@ function createFallbackLesson(
     {
       intent: 'recap',
       content: {
-        speech: `Excellent! Let's recap what we've learned about ${safeQuery}. We covered the definition, key concepts, and saw practical examples!`,
-        speechBn: `চমৎকার! ${safeQuery} সম্পর্কে আমরা যা শিখেছি তার সারসংক্ষেপ করি। আমরা সংজ্ঞা, মূল ধারণাগুলো এবং উদাহরণ দেখেছি!`,
-        board: {
-          type: 'recap',
-          text: `Recap: ${safeQuery}`,
-          textBn: `সারসংক্ষেপ: ${safeQuery}`,
-        },
+        speech: `Excellent! Let's recap what we've learned about ${safeQuery}. We covered the definition, key concepts, and practical examples!`,
+        speechBn: `চমৎকার! ${safeQuery} সম্পর্কে যা শিখেছি তার সারসংক্ষেপ করি। সংজ্ঞা, মূল ধারণাগুলো এবং উদাহরণ দেখেছি!`,
+        board: { type: 'recap', text: `Recap: ${safeQuery}`, textBn: `সারসংক্ষেপ: ${safeQuery}` },
       },
       priority: 'high',
       actions: ['speak', 'board_write'],
@@ -125,9 +104,9 @@ function createFallbackLesson(
 
 // ---- System Prompt ----
 
-const SYSTEM_PROMPT = `You are an AI Teacher Engine for the Bangladesh National Curriculum. You generate teaching INTENT blocks, NOT timestamps. The runtime engine (FlowController) will handle timing, pacing, and flow control.
+const SYSTEM_PROMPT = `You are an AI Teacher Engine for the Bangladesh National Curriculum. You generate teaching INTENT blocks. The runtime engine handles timing and flow.
 
-Output a valid JSON object with this exact structure:
+Output ONLY a valid JSON object — no markdown, no code fences, no extra text:
 {
   "lesson_id": "unique-id",
   "title": "Lesson Title",
@@ -141,7 +120,7 @@ Output a valid JSON object with this exact structure:
   "created_at": "ISO date"
 }
 
-Each intent must follow this format:
+Each intent:
 {
   "intent": "introduce|explain_concept|provide_example|quiz_student|recap|transition|interact",
   "content": {
@@ -151,7 +130,7 @@ Each intent must follow this format:
       "type": "definition|concept|example|diagram|recap|formula|table|graph",
       "text": "Short English text (max 60 chars)",
       "textBn": "Short Bengali text (max 60 chars)",
-      "formulaText": "LaTeX formula (if applicable)"
+      "formulaText": "LaTeX formula (only for math)"
     }
   },
   "priority": "critical|high|medium|low",
@@ -159,46 +138,82 @@ Each intent must follow this format:
   "quiz": null
 }
 
-For quiz_student intents, include a quiz object:
-{
-  "quiz": {
-    "questionText": { "en": "Question in English", "bn": "প্রশ্ন বাংলায়" },
-    "choices": [
-      { "id": "a", "label": "A", "text": { "en": "Choice A", "bn": "বিকল্প ক" } },
-      { "id": "b", "label": "B", "text": { "en": "Choice B", "bn": "বিকল্প খ" } },
-      { "id": "c", "label": "C", "text": { "en": "Choice C", "bn": "বিকল্প গ" } },
-      { "id": "d", "label": "D", "text": { "en": "Choice D", "bn": "বিকল্প ঘ" } }
-    ],
-    "correctAnswer": "a",
-    "explanation": { "en": "Explanation", "bn": "ব্যাখ্যা" }
-  }
+For quiz_student intents add:
+"quiz": {
+  "questionText": { "en": "...", "bn": "..." },
+  "choices": [
+    { "id": "a", "label": "A", "text": { "en": "...", "bn": "..." } },
+    { "id": "b", "label": "B", "text": { "en": "...", "bn": "..." } },
+    { "id": "c", "label": "C", "text": { "en": "...", "bn": "..." } },
+    { "id": "d", "label": "D", "text": { "en": "...", "bn": "..." } }
+  ],
+  "correctAnswer": "a",
+  "explanation": { "en": "...", "bn": "..." }
 }
 
 RULES:
-- NEVER include timestamps or timing information
+- Output raw JSON only — no backticks, no markdown
 - Generate 8-15 intents per lesson
-- Follow flow: introduce → explain_concept → provide_example → quiz_student → recap
-- Include bilingual content (en + bn) in ALL intents
-- Board content must be SHORT (max 60 chars per line)
-- For math subjects, include formulaText with LaTeX
-- Make content appropriate for the specified class level (Bangladesh curriculum)
-- Speech should be conversational and engaging
-- Quiz questions should test understanding, not memorization
-- The teacher_persona affects tone: friendly=encouraging, strict=formal, exam_coach=test-focused, slow_explainer=step-by-step, bilingual_first=more Bengali`;
+- Flow: introduce → explain_concept → provide_example → quiz_student → recap
+- All intents must have bilingual content (en + bn)
+- Board text max 60 chars
+- For math: include formulaText with LaTeX
+- Match content to the class level (Bangladesh NCTB curriculum)
+- teacher_persona tone: friendly=encouraging, strict=formal, exam_coach=test-focused, slow_explainer=step-by-step, bilingual_first=more Bengali`;
 
 function getTeachingMode(subject: string): TeachingMode {
   const modeMap: Record<string, TeachingMode> = {
-    math: 'math',
-    higher_math: 'math',
-    science: 'science',
-    physics: 'science',
-    chemistry: 'science',
-    biology: 'science',
-    english: 'english',
-    bangla: 'bangla',
-    ict: 'ict',
+    math: 'math', higher_math: 'math',
+    science: 'science', physics: 'science', chemistry: 'science', biology: 'science',
+    english: 'english', bangla: 'bangla', ict: 'ict',
   };
   return modeMap[subject] || 'general';
+}
+
+// ---- Mistral API call (browser-safe fetch) ----
+
+async function callMistral(messages: { role: string; content: string }[]): Promise<{
+  content: string;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+} | null> {
+  const apiKey = process.env.NEXT_PUBLIC_MISTRAL_API_KEY;
+  const model = process.env.NEXT_PUBLIC_MODEL_NAME || 'mistral-small-latest';
+
+  if (!apiKey) {
+    console.warn('[LessonService] NEXT_PUBLIC_MISTRAL_API_KEY not set — using fallback lesson');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[LessonService] Mistral API error:', response.status, err);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      content: data.choices?.[0]?.message?.content || '',
+      usage: data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    };
+  } catch (err) {
+    console.error('[LessonService] Fetch failed:', err);
+    return null;
+  }
 }
 
 async function generateLessonWithAI(
@@ -209,67 +224,64 @@ async function generateLessonWithAI(
   teacherPersona: TeacherPersona,
   context: string
 ): Promise<{ lesson: LessonPlan; tokens: { input: number; output: number; total: number } } | null> {
+  const teachingMode = getTeachingMode(subject);
+
+  const userMessage = context
+    ? `Generate a lesson about "${query}" for Class ${classNumber} ${subjectLabel}.\n\nPrevious context: ${context}\n\nTeacher persona: ${teacherPersona}\nTeaching mode: ${teachingMode}`
+    : `Generate a lesson about "${query}" for Class ${classNumber} ${subjectLabel}.\n\nTeacher persona: ${teacherPersona}\nTeaching mode: ${teachingMode}`;
+
+  const result = await callMistral([
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: userMessage },
+  ]);
+
+  if (!result?.content) return null;
+
+  let parsed: LessonPlan;
   try {
-    const zai = await ZAI.create();
-    const teachingMode = getTeachingMode(subject);
-
-    const userMessage = context
-      ? `Generate a lesson about "${query}" for Class ${classNumber} ${subjectLabel}.\n\nPrevious context: ${context}\n\nTeacher persona: ${teacherPersona}\nTeaching mode: ${teachingMode}`
-      : `Generate a lesson about "${query}" for Class ${classNumber} ${subjectLabel}.\n\nTeacher persona: ${teacherPersona}\nTeaching mode: ${teachingMode}`;
-
-    const result = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0.7,
-      max_tokens: 4096,
-    });
-
-    const content = result.choices?.[0]?.message?.content;
-    if (!content) return null;
-
-    let parsed: LessonPlan;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      console.error('[LessonService] Failed to parse AI response as JSON');
-      return null;
-    }
-
-    if (!parsed.intents || !Array.isArray(parsed.intents) || parsed.intents.length === 0) {
-      return null;
-    }
-
-    const lesson: LessonPlan = {
-      lesson_id: parsed.lesson_id || crypto.randomUUID(),
-      title: parsed.title || `${query} - Class ${classNumber}`,
-      lang: parsed.lang || 'bn+en',
-      classNumber,
-      subject,
-      subjectLabel,
-      teacher_persona: teacherPersona,
-      teaching_mode: teachingMode,
-      intents: parsed.intents,
-      created_at: new Date().toISOString(),
-    };
-
-    const tokens = {
-      input: result.usage?.prompt_tokens || 0,
-      output: result.usage?.completion_tokens || 0,
-      total: result.usage?.total_tokens || 0,
-    };
-
-    return { lesson, tokens };
-  } catch (err) {
-    console.error('[LessonService] AI generation failed:', err);
+    const clean = result.content.replace(/```json|```/g, '').trim();
+    parsed = JSON.parse(clean);
+  } catch {
+    console.error('[LessonService] Failed to parse Mistral response as JSON');
     return null;
   }
+
+  if (!parsed.intents || !Array.isArray(parsed.intents) || parsed.intents.length === 0) return null;
+
+  const lesson: LessonPlan = {
+    lesson_id: parsed.lesson_id || crypto.randomUUID(),
+    title: parsed.title || `${query} - Class ${classNumber}`,
+    lang: parsed.lang || 'bn+en',
+    classNumber,
+    subject,
+    subjectLabel,
+    teacher_persona: teacherPersona,
+    teaching_mode: teachingMode,
+    intents: parsed.intents,
+    created_at: new Date().toISOString(),
+  };
+
+  return {
+    lesson,
+    tokens: {
+      input: result.usage.prompt_tokens,
+      output: result.usage.completion_tokens,
+      total: result.usage.total_tokens,
+    },
+  };
 }
+
+// ---- Public API ----
 
 export interface LessonResult {
   lesson: LessonPlan;
-  tokens: { input_tokens: number; output_tokens: number; total_tokens: number; session_id: string; timestamp: string };
+  tokens: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    session_id: string;
+    timestamp: string;
+  };
 }
 
 export async function generateLesson(params: {
@@ -284,33 +296,13 @@ export async function generateLesson(params: {
   const { classroom_id, query, classNumber, subject, subjectLabel, teacher_persona, context = '' } = params;
   const teachingMode = getTeachingMode(subject);
 
-  const aiResult = await generateLessonWithAI(
-    query, classNumber, subject, subjectLabel,
-    teacher_persona || 'friendly_teacher', context
-  );
-
-  let lesson: LessonPlan;
-  let tokenUsage = { input: 0, output: 0, total: 0 };
-
-  if (aiResult) {
-    lesson = aiResult.lesson;
-    tokenUsage = aiResult.tokens;
-  } else {
-    lesson = createFallbackLesson(
-      query, classNumber, subject, subjectLabel,
-      teacher_persona || 'friendly_teacher', teachingMode
-    );
-  }
+  const aiResult = await generateLessonWithAI(query, classNumber, subject, subjectLabel, teacher_persona || 'friendly_teacher', context);
+  const lesson = aiResult?.lesson ?? createFallbackLesson(query, classNumber, subject, subjectLabel, teacher_persona || 'friendly_teacher', teachingMode);
+  const tokenUsage = aiResult?.tokens ?? { input: 0, output: 0, total: 0 };
 
   return {
     lesson,
-    tokens: {
-      input_tokens: tokenUsage.input,
-      output_tokens: tokenUsage.output,
-      total_tokens: tokenUsage.total,
-      session_id: classroom_id,
-      timestamp: new Date().toISOString(),
-    },
+    tokens: { input_tokens: tokenUsage.input, output_tokens: tokenUsage.output, total_tokens: tokenUsage.total, session_id: classroom_id, timestamp: new Date().toISOString() },
   };
 }
 
@@ -326,33 +318,20 @@ export async function generateFollowUp(params: {
   const { classroom_id, query, classNumber, subject, subjectLabel, teacher_persona, context = '' } = params;
   const teachingMode = getTeachingMode(subject);
 
-  const aiResult = await generateLessonWithAI(
-    query, classNumber, subject, subjectLabel,
-    teacher_persona || 'friendly_teacher', context
-  );
+  const aiResult = await generateLessonWithAI(query, classNumber, subject, subjectLabel, teacher_persona || 'friendly_teacher', context);
 
   let lesson: LessonPlan;
-  let tokenUsage = { input: 0, output: 0, total: 0 };
+  const tokenUsage = aiResult?.tokens ?? { input: 0, output: 0, total: 0 };
 
   if (aiResult) {
     lesson = aiResult.lesson;
-    tokenUsage = aiResult.tokens;
   } else {
-    const fallback = createFallbackLesson(
-      query, classNumber, subject, subjectLabel,
-      teacher_persona || 'friendly_teacher', teachingMode
-    );
+    const fallback = createFallbackLesson(query, classNumber, subject, subjectLabel, teacher_persona || 'friendly_teacher', teachingMode);
     lesson = { ...fallback, intents: fallback.intents.slice(0, 3) };
   }
 
   return {
     lesson,
-    tokens: {
-      input_tokens: tokenUsage.input,
-      output_tokens: tokenUsage.output,
-      total_tokens: tokenUsage.total,
-      session_id: classroom_id,
-      timestamp: new Date().toISOString(),
-    },
+    tokens: { input_tokens: tokenUsage.input, output_tokens: tokenUsage.output, total_tokens: tokenUsage.total, session_id: classroom_id, timestamp: new Date().toISOString() },
   };
 }
