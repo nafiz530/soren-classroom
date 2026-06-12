@@ -120,3 +120,70 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ─── CLASSROOM RESPONSIVE LAYOUT ─── */
+
+/* Mobile-first: stacked layout */
+.classroom-root {
+  display: flex;
+  flex-direction: column;
+}
+
+.classroom-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* On mobile: board is 55% height, speech below */
+@media (max-width: 767px) {
+  .classroom-board {
+    height: 52vh;
+    flex-shrink: 0;
+  }
+  .classroom-speech {
+    flex-shrink: 0;
+  }
+}
+
+/* Tablet: board fills, speech overlaid as floating panel */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .classroom-body {
+    flex-direction: row;
+  }
+  .classroom-board {
+    flex: 1;
+  }
+}
+
+/* Desktop: side panel + board + speech panel */
+@media (min-width: 1024px) {
+  .classroom-body {
+    flex-direction: row;
+  }
+}
+
+/* ─── CHALKBOARD FONT IMPORTS ─── */
+@font-face {
+  font-family: 'Caveat';
+  font-display: swap;
+}
+
+/* ─── MOBILE TOUCH IMPROVEMENTS ─── */
+.input-bar-wrapper {
+  position: relative;
+  z-index: 20;
+}
+
+/* Bangla rendering optimization */
+.bn-text, [lang="bn"] {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Board section dividers */
+.board-section {
+  position: relative;
+}
+
