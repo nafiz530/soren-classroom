@@ -10,6 +10,7 @@ interface FlowStore {
   speechProgress: number;
   speechText: string;
   boardBlocks: BoardBlock[];
+  allBoardBlocks: BoardBlock[];  // full session history for notebook
   currentIntent: TeachingIntent | null;
   languageMode: LanguageMode;
   teacherPersona: TeacherPersona;
@@ -25,6 +26,7 @@ interface FlowStore {
   setIsWriting: (writing: boolean) => void;
   setSpeechProgress: (progress: number, text: string) => void;
   setBoardBlocks: (blocks: BoardBlock[]) => void;
+  addToAllBlocks: (newBlocks: BoardBlock[]) => void;
   setCurrentIntent: (intent: TeachingIntent | null) => void;
   setLanguageMode: (mode: LanguageMode) => void;
   setTeacherPersona: (persona: TeacherPersona) => void;
@@ -43,6 +45,7 @@ const initialState = {
   speechProgress: 0,
   speechText: '',
   boardBlocks: [] as BoardBlock[],
+  allBoardBlocks: [] as BoardBlock[],
   currentIntent: null as TeachingIntent | null,
   languageMode: 'both' as LanguageMode,
   teacherPersona: 'friendly_teacher' as TeacherPersona,
@@ -61,6 +64,9 @@ export const useFlowStore = create<FlowStore>((set) => ({
   setIsWriting: (writing) => set({ isWriting: writing }),
   setSpeechProgress: (progress, text) => set({ speechProgress: progress, speechText: text }),
   setBoardBlocks: (blocks) => set({ boardBlocks: blocks }),
+  addToAllBlocks: (newBlocks) => set((s) => ({
+    allBoardBlocks: [...s.allBoardBlocks, ...newBlocks.filter(nb => !s.allBoardBlocks.find(b => b.id === nb.id))],
+  })),
   setCurrentIntent: (intent) => set({ currentIntent: intent }),
   setLanguageMode: (mode) => set({ languageMode: mode }),
   setTeacherPersona: (persona) => set({ teacherPersona: persona }),

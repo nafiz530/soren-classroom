@@ -216,6 +216,8 @@ export class FlowController {
       tableData: board.tableData,
       graphData: board.graphData,
       diagramData: board.diagramData,
+      chalkLines: (board as any).chalkLines,
+      chalkColor: (board as any).chalkColor,
     });
 
     this.emitBoardUpdate();
@@ -239,15 +241,49 @@ export class FlowController {
   private async processQuiz(intent: TeachingIntent): Promise<void> {
     if (!intent.quiz) return;
 
+    // Fully stop speech and timer — class waits for student
+    this.speechEngine.stop();
+    this.stopTimer();
     this.emitPhase('quizzing');
+
     if (this.onQuizCallback) {
       this.onQuizCallback(intent.quiz);
     }
 
-    // Wait for user answer
-    return new Promise((resolve) => {
-      this.pendingQuizResolve = resolve;
+    // Suspend until QuizOverlay calls submitQuizAnswer()
+    await new Promise<void>((resolve) => {
+      this.pendingQuizResolve = (answer: string) => {
+        const isCorrect = answer === intent.quiz!.correctAnswer;
+        const correctChoice = intent.quiz!.choices.find(c => c.id === intent.quiz!.correctAnswer);
+        const correctBn = correctChoice?.text.bn || intent.quiz!.correctAnswer.toUpperCase();
+
+        (this.boardManager as any).addBlock({
+          type: 'key_points',
+          zone: 'main',
+          importance: 'high',
+          persist: true,
+          lifespan: 'section',
+          text: isCorrect ? '\u2713 Correct!' : `Correct: ${intent.quiz!.correctAnswer.toUpperCase()}`,
+          localizedText: {
+            en: isCorrect ? '\u2713 Correct!' : `Correct: ${intent.quiz!.correctAnswer.toUpperCase()}`,
+            bn: isCorrect ? '\u2713 \u09b6\u09be\u09ac\u09be\u09b6! \u0989\u09a4\u09cd\u09a4\u09b0 \u09a0\u09bf\u0995\u0964' : `\u09b8\u09a0\u09bf\u0995 \u0989\u09a4\u09cd\u09a4\u09b0: ${correctBn}`,
+          },
+          chalkLines: isCorrect
+            ? ['\u2713 \u09b6\u09be\u09ac\u09be\u09b6! \u09a4\u09c1\u09ae\u09bf \u09a0\u09bf\u0995 \u0989\u09a4\u09cd\u09a4\u09b0 \u09a6\u09bf\u09af\u09bc\u09c7\u099b\u09cb!']
+            : [
+                `\u2717 \u09b8\u09a0\u09bf\u0995 \u0989\u09a4\u09cd\u09a4\u09b0: ${correctBn}`,
+                `   ${intent.quiz!.explanation.bn.substring(0, 55)}...`,
+              ],
+          chalkColor: isCorrect ? 'green' : 'yellow',
+          createdAt: Date.now(),
+        });
+        this.emitBoardUpdate();
+        this.startTimer();
+        resolve();
+      };
     });
+
+    this.pendingQuizResolve = null;
   }
 
   private determineLifespan(type: BoardContentType): BoardBlock['lifespan'] {

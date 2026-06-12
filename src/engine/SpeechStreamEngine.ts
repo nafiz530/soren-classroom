@@ -2,8 +2,86 @@ import type { LanguageMode } from '@/types';
 
 type ProgressCallback = (progress: number, text: string) => void;
 
+// ─── Voice scoring ────────────────────────────────────────────────
+// Finds the best available voice for a given language from whatever
+// the browser / OS provides — all free, no API key needed.
+function pickBestVoice(
+  voices: SpeechSynthesisVoice[],
+  isBengali: boolean,
+): SpeechSynthesisVoice | null {
+  if (isBengali) {
+    // Priority order for Bangla
+    const bnOrder = ['bn-BD', 'bn-IN', 'bn', 'hi-IN', 'hi'];
+    for (const code of bnOrder) {
+      const v = voices.find(
+        (v) => v.lang.startsWith(code) && !v.name.toLowerCase().includes('espeak'),
+      );
+      if (v) return v;
+    }
+    return voices.find((v) => v.lang.startsWith('bn')) ?? null;
+  }
+
+  // English — prefer Google neural voices (ships with Chrome)
+  const enPreference = [
+    'Google UK English Female',
+    'Google UK English Male',
+    'Google US English',
+    'Microsoft Aria Online',
+    'Microsoft Guy Online',
+    'Samantha',        // macOS / iOS
+    'Karen',           // macOS
+    'Daniel',          // macOS UK
+  ];
+  for (const name of enPreference) {
+    const v = voices.find((v) => v.name === name);
+    if (v) return v;
+  }
+  // Fallback: any non-espeak English voice
+  return (
+    voices.find(
+      (v) =>
+        v.lang.startsWith('en') &&
+        !v.name.toLowerCase().includes('espeak') &&
+        !v.name.toLowerCase().includes('festival'),
+    ) ?? null
+  );
+}
+
+// ─── Text preprocessing ───────────────────────────────────────────
+// Splits a paragraph into natural speaking chunks so the engine
+// can insert pauses between them — biggest de-roboticer trick.
+function splitIntoChunks(text: string): string[] {
+  // Split on sentence-ending punctuation, keeping the delimiter
+  const raw = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(/(?<=[।.!?])\s+/);
+
+  const chunks: string[] = [];
+  for (const chunk of raw) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    // If a sentence is very long, split further on commas/semicolons
+    if (trimmed.length > 120) {
+      const sub = trimmed.split(/(?<=[,;—])\s+/);
+      for (const s of sub) {
+        if (s.trim()) chunks.push(s.trim());
+      }
+    } else {
+      chunks.push(trimmed);
+    }
+  }
+  return chunks.length ? chunks : [text.trim()];
+}
+
+// Detect whether a text chunk is primarily Bengali
+function isBengaliText(text: string): boolean {
+  const bengaliChars = (text.match(/[\u0980-\u09FF]/g) || []).length;
+  return bengaliChars / text.length > 0.25;
+}
+
+// ─── Main engine ──────────────────────────────────────────────────
 export class SpeechStreamEngine {
-  private currentUtterance: SpeechSynthesisUtterance | null = null;
   private isPlaying = false;
   private isMuted = false;
   private isPaused = false;
@@ -12,61 +90,108 @@ export class SpeechStreamEngine {
   private progressCallbacks: ProgressCallback[] = [];
   private completeCallbacks: (() => void)[] = [];
   private currentText = '';
-  private voicesLoaded = false;
+  private stopRequested = false;
+  private voicesReady = false;
 
-  constructor() {
-    // Pre-load voices (some browsers load them asynchronously)
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      const loadVoices = () => {
-        window.speechSynthesis.getVoices();
-        this.voicesLoaded = true;
-      };
-      loadVoices();
-      // Chrome loads voices asynchronously
-      if (window.speechSynthesis.onvoiceschanged !== undefined) {
-        window.speechSynthesis.onvoiceschanged = loadVoices;
-      }
+  // Ensure voices are loaded (Chrome loads them async)
+  private async ensureVoices(): Promise<SpeechSynthesisVoice[]> {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return [];
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      this.voicesReady = true;
+      return voices;
     }
+    return new Promise((resolve) => {
+      const handler = () => {
+        voices = window.speechSynthesis.getVoices();
+        this.voicesReady = true;
+        resolve(voices);
+        window.speechSynthesis.removeEventListener('voiceschanged', handler);
+      };
+      window.speechSynthesis.addEventListener('voiceschanged', handler);
+      // Safety timeout
+      setTimeout(() => resolve(window.speechSynthesis.getVoices()), 2000);
+    });
   }
 
   async stream(speech: string, speechBn?: string): Promise<void> {
     this.stop();
+    this.stopRequested = false;
     this.isPlaying = true;
-    this.isPaused = false;
 
-    const textsToSpeak = this.getTextsForLanguage(speech, speechBn);
+    const segments = this.buildSegments(speech, speechBn);
+    const voices = await this.ensureVoices();
+    const totalChars = segments.reduce((a, s) => a + s.text.length, 0);
+    let spokenChars = 0;
 
-    for (const textPart of textsToSpeak) {
-      if (!this.isPlaying) break;
+    for (const segment of segments) {
+      if (this.stopRequested) break;
 
-      this.currentText = textPart;
-      await this.speakText(textPart);
+      this.currentText = segment.text;
+      const chunks = splitIntoChunks(segment.text);
+
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (this.stopRequested) break;
+
+        const chunk = chunks[ci];
+        const isBn = isBengaliText(chunk);
+        const voice = pickBestVoice(voices, isBn);
+
+        await this.speakChunk(chunk, isBn, voice);
+
+        spokenChars += chunk.length;
+        const progress = Math.min(0.98, spokenChars / Math.max(1, totalChars));
+        this.progressCallbacks.forEach((cb) => cb(progress, chunk));
+
+        // Natural pause between chunks — like a teacher breathing
+        if (ci < chunks.length - 1 && !this.stopRequested) {
+          await this.sleep(this.pauseBetweenChunks());
+        }
+      }
+
+      // Longer pause between language segments
+      if (!this.stopRequested && segments.length > 1) {
+        await this.sleep(600);
+      }
     }
 
+    if (!this.stopRequested) {
+      this.progressCallbacks.forEach((cb) => cb(1, speech));
+    }
     this.isPlaying = false;
     this.completeCallbacks.forEach((cb) => cb());
   }
 
-  private getTextsForLanguage(speech: string, speechBn?: string): string[] {
+  private buildSegments(
+    speech: string,
+    speechBn?: string,
+  ): { text: string; lang: string }[] {
     switch (this.languageMode) {
       case 'en':
-        return [speech];
+        return [{ text: speech, lang: 'en-US' }];
       case 'bn':
-        return speechBn ? [speechBn] : [speech];
+        return [{ text: speechBn || speech, lang: 'bn-BD' }];
       case 'both':
-        if (speechBn) {
-          // For "both" mode: speak Bangla first (primary), then English
-          // This matches how real BD teachers teach — Bangla explanation followed by English terms
-          return [speechBn, speech];
-        }
-        return [speech];
       default:
-        return [speech];
+        if (speechBn) {
+          // Speak Bangla first (primary), then English — teacher style
+          return [
+            { text: speechBn, lang: 'bn-BD' },
+            { text: speech, lang: 'en-US' },
+          ];
+        }
+        return [{ text: speech, lang: 'en-US' }];
     }
   }
 
-  private speakText(text: string): Promise<void> {
+  private speakChunk(
+    text: string,
+    isBengali: boolean,
+    voice: SpeechSynthesisVoice | null,
+  ): Promise<void> {
     return new Promise((resolve) => {
+      if (!text.trim()) { resolve(); return; }
+
       if (typeof window === 'undefined' || !window.speechSynthesis) {
         this.simulateProgress(text, resolve);
         return;
@@ -77,158 +202,88 @@ export class SpeechStreamEngine {
         return;
       }
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      this.currentUtterance = utterance;
+      // Chrome bug: cancel any lingering speech before speaking
+      window.speechSynthesis.cancel();
 
-      // Detect language — check for Bengali Unicode range
-      const isBengali = /[\u0980-\u09FF]/.test(text);
-      utterance.lang = isBengali ? 'bn-BD' : 'en-US';
+      const utter = new SpeechSynthesisUtterance(text);
 
-      // Speed based on teacher speed setting and language
-      // Bengali speech naturally needs to be slightly slower
-      const rateMap = {
-        slow: isBengali ? 0.7 : 0.75,
-        normal: isBengali ? 0.9 : 1.0,
-        fast: isBengali ? 1.1 : 1.3,
-      };
-      utterance.rate = rateMap[this.teacherSpeed];
+      // ── Humanization settings ──────────────────────────────────
+      const speedMap = { slow: 0.82, normal: 0.91, fast: 1.1 };
+      utter.rate = speedMap[this.teacherSpeed];
 
-      // Pitch slightly varies for more natural sound
-      utterance.pitch = isBengali ? 1.05 : 1.0;
-
-      // Try to find the best matching voice
-      const voices = window.speechSynthesis.getVoices();
-      const matchingVoice = this.findBestVoice(voices, isBengali);
-      if (matchingVoice) {
-        utterance.voice = matchingVoice;
+      if (isBengali) {
+        utter.lang = 'bn-BD';
+        utter.rate = Math.min(utter.rate, 0.88); // Bangla needs slightly slower
+        utter.pitch = 1.05;
+        utter.volume = 1.0;
+      } else {
+        utter.lang = 'en-US';
+        utter.pitch = 1.08;   // Slightly higher pitch = less robotic on most voices
+        utter.volume = 0.95;
       }
 
-      // Progress tracking
-      const words = text.split(/\s+/);
-      const totalWords = words.length;
-      let reportedProgress = 0;
+      if (voice) utter.voice = voice;
 
-      utterance.onboundary = (event) => {
-        if (event.name === 'word') {
-          const progress = Math.min(1, event.charIndex / Math.max(1, text.length));
-          if (progress > reportedProgress) {
-            reportedProgress = progress;
-            this.progressCallbacks.forEach((cb) => cb(progress, text.substring(0, event.charIndex)));
-          }
+      // Progress via boundary events
+      utter.onboundary = (e) => {
+        if (e.name === 'word') {
+          const progress = Math.min(0.98, e.charIndex / Math.max(1, text.length));
+          this.progressCallbacks.forEach((cb) =>
+            cb(progress, text.substring(0, e.charIndex)),
+          );
         }
       };
 
-      utterance.onend = () => {
-        this.progressCallbacks.forEach((cb) => cb(1, text));
-        this.currentUtterance = null;
+      utter.onend = () => resolve();
+      utter.onerror = (e) => {
+        if (e.error !== 'canceled') console.warn('[Speech] error:', e.error);
         resolve();
       };
 
-      utterance.onerror = (event) => {
-        if (event.error !== 'canceled') {
-          console.warn('[SpeechStreamEngine] TTS error:', event.error);
-        }
-        this.currentUtterance = null;
-        resolve();
-      };
-
-      // Chrome bug workaround: speechSynthesis can pause after ~15 seconds
-      // We use a keepAlive interval to prevent this
-      const keepAlive = setInterval(() => {
-        if (!this.isPlaying) {
-          clearInterval(keepAlive);
-          return;
-        }
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-        }
-      }, 10000);
-
-      const originalOnEnd = utterance.onend;
-      utterance.onend = (event) => {
-        clearInterval(keepAlive);
-        originalOnEnd?.(event);
-      };
-
-      const originalOnError = utterance.onerror;
-      utterance.onerror = (event) => {
-        clearInterval(keepAlive);
-        originalOnError?.(event);
-      };
-
-      window.speechSynthesis.speak(utterance);
+      // Chrome desktop sometimes gets stuck — kick it
+      setTimeout(() => window.speechSynthesis.speak(utter), 50);
     });
   }
 
-  /**
-   * Find the best available voice for the given language.
-   * Priority:
-   * 1. Exact language match (bn-BD or en-US)
-   * 2. Language prefix match (bn-* or en-*)
-   * 3. Any voice (fallback)
-   */
-  private findBestVoice(voices: SpeechSynthesisVoice[], isBengali: boolean): SpeechSynthesisVoice | null {
-    if (!voices || voices.length === 0) return null;
-
-    const targetLang = isBengali ? 'bn' : 'en';
-    const targetLocale = isBengali ? 'bn-BD' : 'en-US';
-
-    // 1. Try exact locale match
-    const exactMatch = voices.find((v) => v.lang === targetLocale);
-    if (exactMatch) return exactMatch;
-
-    // 2. Try language prefix match — prefer non-default voices (usually higher quality)
-    const prefixMatches = voices.filter((v) => v.lang.startsWith(targetLang));
-    if (prefixMatches.length > 0) {
-      // Prefer "Google" or "Microsoft" voices (usually better quality)
-      const premiumVoice = prefixMatches.find((v) =>
-        v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')
-      );
-      if (premiumVoice) return premiumVoice;
-
-      // Prefer local voices over network (more reliable)
-      const localVoice = prefixMatches.find((v) => v.localService);
-      if (localVoice) return localVoice;
-
-      return prefixMatches[0];
-    }
-
-    // 3. Fallback: no matching voice
-    return null;
+  private pauseBetweenChunks(): number {
+    const base = { slow: 500, normal: 320, fast: 160 };
+    return base[this.teacherSpeed];
   }
 
   private simulateProgress(text: string, resolve: () => void): void {
-    const words = text.split(/\s+/);
-    // Simulate timing: ~300ms per word for Bangla, ~200ms for English
-    const isBengali = /[\u0980-\u09FF]/.test(text);
-    const msPerWord = isBengali ? 300 : 200;
-    const speedFactor = this.teacherSpeed === 'slow' ? 1.5 : this.teacherSpeed === 'fast' ? 0.7 : 1;
-    const totalDuration = words.length * msPerWord * speedFactor;
-    const stepDuration = totalDuration / words.length;
-    let step = 0;
+    const words = text.split(' ').length;
+    const totalMs =
+      words * 180 *
+      (this.teacherSpeed === 'slow' ? 1.6 : this.teacherSpeed === 'fast' ? 0.65 : 1);
+    const steps = Math.max(words, 4);
+    const step = totalMs / steps;
+    let i = 0;
+    const iv = setInterval(() => {
+      if (this.stopRequested) { clearInterval(iv); resolve(); return; }
+      i++;
+      const p = Math.min(1, i / steps);
+      const charIdx = Math.min(text.length, Math.floor(p * text.length));
+      this.progressCallbacks.forEach((cb) => cb(p, text.substring(0, charIdx)));
+      if (i >= steps) { clearInterval(iv); resolve(); }
+    }, step);
+  }
 
-    const interval = setInterval(() => {
-      if (!this.isPlaying) {
-        clearInterval(interval);
-        resolve();
-        return;
-      }
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
-      step++;
-      const progress = Math.min(1, step / words.length);
-      const charIndex = Math.min(text.length, words.slice(0, step).join(' ').length);
-      this.progressCallbacks.forEach((cb) => cb(progress, text.substring(0, charIndex)));
-
-      if (step >= words.length) {
-        clearInterval(interval);
-        resolve();
-      }
-    }, stepDuration);
+  // ── Controls ───────────────────────────────────────────────────
+  stop(): void {
+    this.stopRequested = true;
+    this.isPlaying = false;
+    this.isPaused = false;
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
   }
 
   pause(): void {
-    if (this.isPlaying && !this.isPaused) {
+    if (!this.isPaused) {
       this.isPaused = true;
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.pause();
@@ -237,7 +292,7 @@ export class SpeechStreamEngine {
   }
 
   resume(): void {
-    if (this.isPlaying && this.isPaused) {
+    if (this.isPaused) {
       this.isPaused = false;
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.resume();
@@ -245,51 +300,22 @@ export class SpeechStreamEngine {
     }
   }
 
-  stop(): void {
-    this.isPlaying = false;
-    this.isPaused = false;
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    this.currentUtterance = null;
-  }
-
   setMuted(muted: boolean): void {
     this.isMuted = muted;
-    if (muted && this.isPlaying) {
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-    }
+    if (muted) this.stop();
   }
 
-  setLanguageMode(mode: LanguageMode): void {
-    this.languageMode = mode;
-  }
+  setLanguageMode(mode: LanguageMode): void { this.languageMode = mode; }
+  setTeacherSpeed(speed: 'slow' | 'normal' | 'fast'): void { this.teacherSpeed = speed; }
+  getIsPlaying(): boolean { return this.isPlaying; }
+  getIsMuted(): boolean { return this.isMuted; }
 
-  setTeacherSpeed(speed: 'slow' | 'normal' | 'fast'): void {
-    this.teacherSpeed = speed;
+  onProgress(cb: ProgressCallback): () => void {
+    this.progressCallbacks.push(cb);
+    return () => { this.progressCallbacks = this.progressCallbacks.filter((c) => c !== cb); };
   }
-
-  getIsPlaying(): boolean {
-    return this.isPlaying;
-  }
-
-  getIsMuted(): boolean {
-    return this.isMuted;
-  }
-
-  onProgress(callback: ProgressCallback): () => void {
-    this.progressCallbacks.push(callback);
-    return () => {
-      this.progressCallbacks = this.progressCallbacks.filter((cb) => cb !== callback);
-    };
-  }
-
-  onComplete(callback: () => void): () => void {
-    this.completeCallbacks.push(callback);
-    return () => {
-      this.completeCallbacks = this.completeCallbacks.filter((cb) => cb !== callback);
-    };
+  onComplete(cb: () => void): () => void {
+    this.completeCallbacks.push(cb);
+    return () => { this.completeCallbacks = this.completeCallbacks.filter((c) => c !== cb); };
   }
 }

@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { BookOpen, Clock, Trophy, GraduationCap, Plus, Sparkles } from 'lucide-react';
+import { BookOpen, Clock, Trophy, GraduationCap, Plus, Sparkles, RotateCcw } from 'lucide-react';
 
 interface HomeViewProps {
   onOpenClassroom: (classroom: Classroom) => void;
@@ -40,8 +40,7 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
   }, [loadClassrooms, loadProgress, loadFromStorage]);
 
   const handleCreate = (req: CreateClassroomRequest) => {
-    const classroom = createClassroom(req);
-    void classroom;
+    createClassroom(req);
   };
 
   const handleDelete = (id: string) => {
@@ -51,9 +50,7 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
 
   const handleOpenClassroom = (id: string) => {
     const classroom = classrooms.find((c) => c.id === id);
-    if (classroom) {
-      onOpenClassroom(classroom);
-    }
+    if (classroom) onOpenClassroom(classroom);
   };
 
   const filteredClassrooms = classrooms.filter((c) => {
@@ -61,105 +58,115 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
     return c.status === filter;
   });
 
-  // Check for saved session
   const savedSession = typeof window !== 'undefined' ? storage.getSession() : null;
   const hasResumableSession = savedSession !== null;
 
+  const quizTotal = progress?.subjects.reduce((acc, s) => acc + s.quizTotal, 0) || 0;
+  const quizScore = progress?.subjects.reduce((acc, s) => acc + s.quizScore, 0) || 0;
+
+  const FILTER_LABELS = { all: 'সব', active: 'চলমান', completed: 'শেষ' };
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-amber-500 to-rose-500 flex items-center justify-center">
-              <GraduationCap className="h-5 w-5 text-white" />
+      {/* ─── HEADER ─── */}
+      <header className="border-b border-border bg-background/90 backdrop-blur-sm sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            {/* Logo mark — chalkboard green */}
+            <div
+              className="h-9 w-9 rounded-xl flex items-center justify-center text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #1a3d2a 0%, #2d6a4f 100%)' }}
+            >
+              📚
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Soren Classroom</h1>
-              <p className="text-xs text-muted-foreground">AI শিক্ষক · NCTB Curriculum · বাংলাদেশ</p>
+              <h1 className="text-base font-bold tracking-tight leading-tight">Soren Classroom</h1>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                Bangladesh NCTB · AI শিক্ষক
+              </p>
             </div>
           </div>
           <CreateClassroomDialog onCreate={handleCreate} />
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Resume Session Banner */}
+      <main className="max-w-5xl mx-auto px-3 sm:px-6 py-5 space-y-5">
+
+        {/* ─── RESUME BANNER ─── */}
         {hasResumableSession && savedSession && (
-          <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-amber-600" />
-                <div>
-                  <p className="text-sm font-medium">আগের ক্লাস চালু করবে? / Resume your last lesson?</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(savedSession.saved_at).toLocaleString('bn-BD')}
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const classroom = classrooms.find((c) => c.id === savedSession.classroom_id);
-                  if (classroom) onOpenClassroom(classroom);
-                }}
-              >
-                চালু করুন / Resume
-              </Button>
-            </CardContent>
-          </Card>
+          <div
+            className="rounded-xl border p-3 flex items-center gap-3"
+            style={{ background: 'linear-gradient(135deg, #1a3d2a15 0%, #2d6a4f10 100%)', borderColor: '#2d6a4f30' }}
+          >
+            <RotateCcw className="h-4 w-4 shrink-0" style={{ color: '#2d6a4f' }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">আগের পাঠ চালিয়ে যাবে?</p>
+              <p className="text-[10px] text-muted-foreground truncate">
+                {new Date(savedSession.saved_at).toLocaleDateString('bn-BD')} তারিখের পাঠ
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 text-xs"
+              onClick={() => {
+                const classroom = classrooms.find((c) => c.id === savedSession.classroom_id);
+                if (classroom) onOpenClassroom(classroom);
+              }}
+            >
+              চালিয়ে যাও
+            </Button>
+          </div>
         )}
 
-        {/* Progress Overview */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <BookOpen className="h-4 w-4" />
-                <span className="text-xs">বিষয় / Topics</span>
-              </div>
-              <p className="text-xl font-bold">{progress?.totalTopicsLearned || 0}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs">সময় / Time</span>
-              </div>
-              <p className="text-xl font-bold">
-                {Math.floor((progress?.totalTimeSpentSeconds || 0) / 60)}m
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Trophy className="h-4 w-4" />
-                <span className="text-xs">কুইজ / Quiz</span>
-              </div>
-              <p className="text-xl font-bold">
-                {progress?.subjects.reduce((acc, s) => acc + s.quizScore, 0) || 0}/
-                {progress?.subjects.reduce((acc, s) => acc + s.quizTotal, 0) || 0}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <GraduationCap className="h-4 w-4" />
-                <span className="text-xs">ক্লাসরুম / Classrooms</span>
-              </div>
-              <p className="text-xl font-bold">{classrooms.length}</p>
-            </CardContent>
-          </Card>
+        {/* ─── STATS ─── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          {[
+            {
+              icon: <BookOpen className="h-3.5 w-3.5" />,
+              label: 'বিষয় শিখেছি',
+              value: progress?.totalTopicsLearned || 0,
+            },
+            {
+              icon: <Clock className="h-3.5 w-3.5" />,
+              label: 'পড়ার সময়',
+              value: `${Math.floor((progress?.totalTimeSpentSeconds || 0) / 60)}মি`,
+            },
+            {
+              icon: <Trophy className="h-3.5 w-3.5" />,
+              label: 'কুইজ স্কোর',
+              value: quizTotal > 0 ? `${quizScore}/${quizTotal}` : '—',
+            },
+            {
+              icon: <GraduationCap className="h-3.5 w-3.5" />,
+              label: 'ক্লাসরুম',
+              value: classrooms.length,
+            },
+          ].map((stat) => (
+            <Card key={stat.label} className="overflow-hidden">
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-1.5 text-muted-foreground mb-1.5">
+                  {stat.icon}
+                  <span className="text-[10px] sm:text-xs"
+                    style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+                    {stat.label}
+                  </span>
+                </div>
+                <p className="text-lg sm:text-2xl font-bold">{stat.value}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
-        {/* Classrooms Section */}
+        {/* ─── CLASSROOMS ─── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">আমার ক্লাসরুম / My Classrooms</h2>
+            <h2
+              className="text-base font-semibold"
+              style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
+            >
+              আমার ক্লাসরুম
+            </h2>
             <div className="flex gap-1">
               {(['all', 'active', 'completed'] as const).map((f) => (
                 <Button
@@ -167,9 +174,10 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
                   size="sm"
                   variant={filter === f ? 'default' : 'ghost'}
                   onClick={() => setFilter(f)}
-                  className="text-xs capitalize"
+                  className="text-[10px] sm:text-xs h-7 px-2.5"
+                  style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
                 >
-                  {f === 'all' ? 'সব' : f === 'active' ? 'চলমান' : 'সম্পন্ন'}
+                  {FILTER_LABELS[f]}
                 </Button>
               ))}
             </div>
@@ -177,25 +185,35 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
 
           {filteredClassrooms.length === 0 ? (
             <Card className="border-dashed">
-              <CardContent className="p-8 text-center">
-                <GraduationCap className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-medium mb-1">কোনো ক্লাসরুম নেই / No classrooms yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  AI শিক্ষকের সাথে পড়াশোনা শুরু করতে ক্লাসরুম তৈরি করো
+              <CardContent className="py-10 text-center">
+                <div className="text-4xl mb-3">📖</div>
+                <h3
+                  className="font-medium mb-1"
+                  style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
+                >
+                  কোনো ক্লাসরুম নেই
+                </h3>
+                <p
+                  className="text-sm text-muted-foreground mb-4"
+                  style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
+                >
+                  প্রথম ক্লাসরুম তৈরি করো এবং AI স্যারের কাছে পড়া শুরু করো!
                 </p>
                 <CreateClassroomDialog
                   onCreate={handleCreate}
                   trigger={
-                    <Button className="gap-2">
+                    <Button className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700">
                       <Plus className="h-4 w-4" />
-                      ক্লাসরুম তৈরি করুন / Create Classroom
+                      <span style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+                        ক্লাসরুম তৈরি করো
+                      </span>
                     </Button>
                   }
                 />
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {filteredClassrooms.map((classroom) => (
                 <ClassroomCard
                   key={classroom.id}
@@ -207,26 +225,37 @@ export function HomeView({ onOpenClassroom }: HomeViewProps) {
             </div>
           )}
         </div>
+
+        {/* ─── FOOTER INFO ─── */}
+        <div className="pt-2 pb-4 text-center">
+          <p className="text-[10px] text-muted-foreground"
+            style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+            🇧🇩 Bangladesh NCTB পাঠ্যক্রম · Class 6-10 · বাংলা ও ইংরেজি
+          </p>
+        </div>
       </main>
 
-      {/* Delete Confirmation Dialog */}
+      {/* ─── DELETE DIALOG ─── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>ক্লাসরুম মুছে ফেলবে? / Delete Classroom?</AlertDialogTitle>
-            <AlertDialogDescription>
-              এটি ক্লাসরুম এবং এর সমস্ত ডেটা স্থায়ীভাবে মুছে ফেলবে। এই কাজ পূর্বাবস্থায় ফেরানো যাবে না।
-              <br />
-              This will permanently delete this classroom and all its data.
+            <AlertDialogTitle style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+              ক্লাসরুম মুছে ফেলবে?
+            </AlertDialogTitle>
+            <AlertDialogDescription style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+              এই ক্লাসরুম এবং এর সব তথ্য স্থায়ীভাবে মুছে যাবে।
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>বাতিল / Cancel</AlertDialogCancel>
+            <AlertDialogCancel style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
+              বাতিল
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
             >
-              মুছুন / Delete
+              মুছে ফেলো
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
