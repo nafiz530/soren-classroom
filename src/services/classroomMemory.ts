@@ -47,8 +47,8 @@ export const classroomMemory = {
       })),
       timestamp: new Date().toISOString(),
     });
-    // Keep last 20 entries per classroom
-    all[classroomId] = all[classroomId].slice(0, 20);
+    // Keep last 30 entries per classroom (increased from 20 for better context)
+    all[classroomId] = all[classroomId].slice(0, 30);
     safeSet(MEMORY_KEY, all);
   },
 
@@ -71,11 +71,20 @@ export const classroomMemory = {
     const entries = this.getMemory(classroomId);
     if (entries.length === 0) return '';
 
-    const recentTopics = entries.slice(0, 3).map((e) => e.topic).join(', ');
-    const pastIntents = entries.slice(0, 2).flatMap((e) =>
-      e.intents.slice(0, 3).map((i) => `${i.intent}: ${i.content.speech.substring(0, 80)}...`)
-    ).join('\n');
+    const recentTopics = entries.slice(0, 5).map((e) => e.topic).join(', ');
 
-    return `Previous topics covered: ${recentTopics}\nRecent teaching points:\n${pastIntents}`;
+    // Build a richer context showing what was taught and key points
+    const teachingPoints = entries.slice(0, 3).flatMap((e) => {
+      const keyIntents = e.intents.filter((i) =>
+        i.intent === 'introduce' || i.intent === 'explain_concept' || i.intent === 'recap'
+      ).slice(0, 2);
+
+      return keyIntents.map((i) => {
+        const speech = i.content.speechBn || i.content.speech;
+        return `${i.intent}: ${speech.substring(0, 120)}...`;
+      });
+    }).join('\n');
+
+    return `Previously taught topics: ${recentTopics}\nKey teaching points covered:\n${teachingPoints}\n\nIMPORTANT: Build on what was already taught. Don't repeat the same explanations. Connect new content to previously covered material.`;
   },
 };

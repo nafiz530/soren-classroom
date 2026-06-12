@@ -1,8 +1,28 @@
-# Soren Classroom — AI Teaching Engine v3.1
+# Soren Classroom — Real Vibe AI Teaching Engine v1.0
 
 ## Overview
 
-Soren Classroom is a flow-based, adaptive, spatially intelligent AI teaching engine built for the Bangladesh National Curriculum (Class 6-10). It replaces rigid timeline-driven AI simulators with a human-like classroom simulation that feels like a real teacher.
+Soren Classroom is a real-feeling AI classroom built for **Bangladesh National Curriculum (NCTB)** students (Class 6-10). It simulates a **real PhD teacher** from Dhaka University taking a class — natural Bangla-English code-switching, Bangladesh-specific examples, NCTB textbook references, and culturally authentic teaching style.
+
+**This is NOT a robotic AI chatbot.** It's designed to feel like you're sitting in a real classroom in Dhaka, with a teacher who uses "তোমরা", "ভাই", "আপু", cracks examples about rickshaws and Padma Bridge, and genuinely cares about students understanding.
+
+## What Changed from v0.2 → v1.0
+
+### 🔥 Critical Fix: AI Calls Now Actually Work
+- **Before**: Client-side Mistral API call that silently failed (no API key) → fell back to hardcoded "pre-recorded" template responses
+- **After**: Server-side API routes using `z-ai-web-dev-sdk` — AI calls work out of the box, no API key configuration needed
+
+### 🎓 System Prompt Overhaul: PhD Teacher Persona
+- **Before**: Generic "AI Teacher Engine" prompt producing robotic content
+- **After**: Detailed prompt simulating a real Bangladeshi PhD professor — code-switching, NCTB references, cultural authenticity
+
+### 🇧🇩 Full Bangla + English Bilingual Support
+- **Before**: English-first with robotic Bangla translations
+- **After**: Bangla-first with natural English mixing, just like real BD classrooms. All UI labels are bilingual.
+
+### 🗣️ Enhanced TTS
+- **Before**: Basic Web Speech API with poor voice selection
+- **After**: Smart voice matching (Google/Microsoft/Natural priority), Chrome keepAlive fix, proper Bangla speech rate
 
 ## Architecture
 
@@ -10,179 +30,124 @@ Soren Classroom is a flow-based, adaptive, spatially intelligent AI teaching eng
 
 | Module | File | Description |
 |--------|------|-------------|
-| **FlowController** | `src/engine/FlowController.ts` | Runtime "brain" that orchestrates teaching flow, handles timing, speech-board synchronization, pacing, and conflict resolution |
-| **SpeechStreamEngine** | `src/engine/SpeechStreamEngine.ts` | Continuous speech stream with Web Speech API, natural flow, progress tracking |
-| **BoardManager** | `src/engine/BoardManager.ts` | Spatial Intelligence Board with semantic zones, board memory, importance/persistence/lifespan |
-| **PacingEngine** | `src/engine/PacingEngine.ts` | Adaptive Teaching Pacing — no fixed timestamps, runtime-computed pacing per teaching phase |
-| **EventBus** | `src/engine/EventBus.ts` | Internal event system for engine communication |
+| **FlowController** | `src/engine/FlowController.ts` | Runtime "brain" — orchestrates teaching flow, timing, speech-board sync |
+| **SpeechStreamEngine** | `src/engine/SpeechStreamEngine.ts` | Enhanced Web Speech API with smart voice selection, Bangla support |
+| **BoardManager** | `src/engine/BoardManager.ts` | Spatial Intelligence Board with semantic zones |
+| **PacingEngine** | `src/engine/PacingEngine.ts` | Adaptive teaching pacing per phase |
+| **EventBus** | `src/engine/EventBus.ts` | Internal event system |
 
-### Teaching Intent Graph (TIG)
+### API Routes (NEW)
 
-AI outputs **intent-based blocks**, NOT timestamped events:
+| Route | File | Description |
+|-------|------|-------------|
+| **POST /api/lesson** | `src/app/api/lesson/route.ts` | Server-side AI lesson generation using z-ai-web-dev-sdk |
+| **POST /api/followup** | `src/app/api/followup/route.ts` | Server-side AI follow-up question handling |
 
-```json
-{
-  "intent": "explain_concept",
-  "content": {
-    "speech": "English text...",
-    "speechBn": "Bengali text...",
-    "board": { "type": "definition", "text": "..." }
-  },
-  "priority": "high",
-  "actions": ["speak", "board_write"]
-}
-```
-
-### Flow Model
+### Data Flow
 
 ```
-INTRO → EXPLANATION → EXAMPLE → QUIZ → RECAP
+Student asks question (InputBar)
+    ↓
+lessonService.generateLesson() → fetch('/api/lesson')
+    ↓
+API Route (server-side) → z-ai-web-dev-sdk → AI Model
+    ↓
+Returns LessonPlan with TeachingIntents
+    ↓
+FlowController.loadLessonPlan() → plays intents sequentially
+    ↓
+SpeechStreamEngine (TTS) + BoardManager (visual) in parallel
+    ↓
+React re-renders via flowStore (Zustand)
 ```
-
-Speech and board run in **parallel** during explanation phases.
-
-### Spatial Board Zones
-
-| Zone | Content Type | Position |
-|------|-------------|----------|
-| `top-left` | Definition | Top-left corner |
-| `center-left` | Formula | Center-left area |
-| `center` | Concept | Center of board |
-| `right` | Example | Right side |
-| `bottom` | Recap | Bottom strip |
-| `center-large` | Diagram/Graph | Full center overlay |
-
-### Board Memory System
-
-Each board block has:
-- **importance**: `critical` | `high` | `medium` | `low`
-- **persist**: Whether block survives zone clearing
-- **lifespan**: `lesson` | `section` | `temporary`
-- **zone**: Semantic spatial position
-
-## Data Persistence
-
-All user data stored in **browser localStorage only** (Cloudflare Pages compatible):
-
-| Key | Content |
-|-----|---------|
-| `soren:classrooms` | All classroom configurations |
-| `soren:progress` | Student progress, quiz scores, weak areas |
-| `soren:session` | Active session for resume capability |
-| `soren:tokens` | Token usage history and cumulative totals |
-| `soren:classroom-memory` | Per-classroom teaching history for AI context |
-
-## Token Tracking
-
-- Tracks input/output/total tokens per lesson and cumulative session
-- Environment variable `NEXT_PUBLIC_TOKEN_SHOW=true/false` controls UI visibility
-- Must re-read env on restart (not cached permanently)
-- Token data stored in localStorage under `soren:tokens`
-
-## Tech Stack
-
-- **Framework**: Next.js 16 with App Router
-- **Language**: TypeScript 5
-- **Styling**: Tailwind CSS 4 + shadcn/ui
-- **State**: Zustand (client state)
-- **Animation**: Framer Motion
-- **AI**: z-ai-web-dev-sdk (Chat Completions API)
-- **Speech**: Web Speech API (SpeechSynthesis + SpeechRecognition)
-- **Database**: None — purely client-side localStorage
-- **Deployment**: Cloudflare Pages compatible (stateless frontend)
 
 ## Setup
 
 ```bash
 # Install dependencies
-bun install
-
-# Configure environment
-cp .env.example .env.local
-# Edit .env.local:
-#   NEXT_PUBLIC_TOKEN_SHOW=true  (to show token usage UI)
-#   MISTRAL_API_KEY=your-key     (optional, not used by z-ai-web-dev-sdk)
-#   MODEL_NAME=your-model-name   (required — no hardcoded model in code)
+npm install
 
 # Run development server
-bun run dev
+npm run dev
 
-# Lint check
-bun run lint
+# Build for production
+npm run build
 ```
 
-## File Structure
+**No environment variables needed!** The AI SDK works out of the box.
 
-```
-src/
-├── app/
-│   ├── page.tsx                  # Main page (Home/Classroom router)
-│   ├── layout.tsx                # Root layout with fonts & toaster
-│   ├── globals.css               # Tailwind + CSS variables
-│   └── api/
-│       └── lesson/route.ts       # AI lesson generation endpoint
-├── engine/
-│   ├── FlowController.ts         # Main teaching flow orchestrator
-│   ├── SpeechStreamEngine.ts     # Continuous speech stream
-│   ├── BoardManager.ts           # Spatial intelligence board
-│   ├── PacingEngine.ts           # Adaptive teaching pacing
-│   └── EventBus.ts               # Internal event system
-├── components/
-│   ├── HomeView.tsx              # Home dashboard
-│   ├── ClassroomView.tsx         # Classroom teaching interface
-│   ├── classroom/
-│   │   ├── SpatialBoard.tsx      # Board canvas with zones
-│   │   ├── SpeechIndicator.tsx   # Speech progress & controls
-│   │   ├── InputBar.tsx          # User input with voice support
-│   │   ├── QuizOverlay.tsx       # Quiz interaction overlay
-│   │   └── TokenDisplay.tsx      # Token usage display
-│   ├── home/
-│   │   ├── ClassroomCard.tsx     # Classroom card component
-│   │   └── CreateClassroomDialog.tsx  # New classroom form
-│   └── ui/                       # shadcn/ui components
-├── stores/
-│   ├── flowStore.ts              # Flow state (Zustand)
-│   ├── classroomStore.ts         # Classroom CRUD (Zustand + localStorage)
-│   ├── progressStore.ts          # Student progress (Zustand + localStorage)
-│   └── tokenStore.ts             # Token tracking (Zustand + localStorage)
-├── services/
-│   ├── storage.ts                # localStorage persistence layer
-│   └── classroomMemory.ts       # Classroom teaching memory
-├── config/
-│   └── curriculum.ts             # Bangladesh curriculum config (Class 6-10)
-├── types/
-│   └── index.ts                  # All TypeScript types
-├── lib/
-│   ├── utils.ts                  # cn() utility
-│   └── db.ts                     # Prisma client (unused in v3.1)
-└── hooks/
-    ├── use-toast.ts              # Toast hook
-    └── use-mobile.ts             # Mobile detection hook
-```
+## Deployment
 
-## Deployment (Cloudflare Pages)
+### Cloudflare Pages (with SSR support)
 
-This project is designed for stateless, edge-friendly deployment:
+Since the app now uses server-side API routes, you need Cloudflare Pages with Next.js SSR support:
 
-1. No server-dependent session memory
-2. All data in browser localStorage
-3. API routes use serverless-friendly patterns
-4. Set `output: "standalone"` in `next.config.ts`
+1. **Install the Cloudflare adapter:**
+   ```bash
+   npm install -D @cloudflare/next-on-pages
+   ```
+
+2. **Build for Cloudflare Pages:**
+   ```bash
+   npx @cloudflare/next-on-pages
+   ```
+
+3. **Cloudflare Pages Settings:**
+   - Build Command: `npx @cloudflare/next-on-pages`
+   - Build Output directory: `.vercel/output/static`
+
+4. **Or use the helper scripts:**
+   ```bash
+   npm run pages:build    # Build for Cloudflare
+   npm run pages:deploy   # Build + deploy
+   ```
+
+### Vercel (alternative)
 
 ```bash
-bun run build
-# Deploy .next/standalone to Cloudflare Pages
+npm run build
+# Deploy with: vercel deploy --prod
+```
+
+### Self-hosted
+
+```bash
+npm run build
+npm run start
 ```
 
 ## Features
 
-- **Bilingual Support**: English + Bengali (বাংলা) for all content
-- **5 Teacher Personas**: Friendly, Strict, Exam Coach, Slow Explainer, Bilingual First
-- **Voice Input**: Web Speech Recognition (Bengali/English)
-- **Voice Output**: Speech Synthesis with language auto-detection
+- **Real PhD Teacher Vibe**: Natural Bangla-English code-switching, Bangladesh-specific examples, NCTB references
+- **5 Teacher Personas**: Friendly (বন্ধুত্বপূর্ণ), Strict (কঠোর), Exam Coach (পরীক্ষা কোচ), Slow Explainer (ধীর ব্যাখ্যাকারী), Bilingual First (দ্বিভাষিক)
+- **Full Bangla + English UI**: All labels, buttons, placeholders in both languages
+- **Voice Input**: Web Speech Recognition with Bangla/English toggle
+- **Voice Output**: Enhanced Speech Synthesis with smart voice selection
 - **Smart Board**: Semantic zones with importance, persistence, and lifespan
 - **Adaptive Pacing**: Runtime-computed delays based on teaching phase
-- **Quiz System**: Multiple choice with explanations
-- **Session Resume**: Auto-save and restore capability
-- **Token Tracking**: Per-lesson and cumulative token usage monitoring
+- **Quiz System**: Multiple choice with bilingual explanations
+- **Session Resume**: Auto-save and restore
 - **Progress Tracking**: Topics learned, time spent, quiz scores, weak areas
+
+## Curriculum Coverage
+
+Based on **National Curriculum and Textbook Board (NCTB), Bangladesh**:
+
+| Class | Subjects |
+|-------|----------|
+| 6-8 | গণিত (Math), বিজ্ঞান (Science), ইংরেজি (English), বাংলা (Bangla), ICT, বাংলাদেশ ও বিশ্বপরিচয় (BGS), ইসলাম ও নৈতিক শিক্ষা (Islam) |
+| 9-10 Science | পদার্থবিজ্ঞান (Physics), রসায়ন (Chemistry), জীববিজ্ঞান (Biology), উচ্চতর গণিত (Higher Math), English, Bangla, ICT |
+| 9-10 Arts | ইতিহাস (History), ভূগোল (Geography), অর্থনীতি (Economics), পৌরনীতি (Political Science), English, Bangla, ICT |
+| 9-10 Commerce | হিসাববিজ্ঞান (Accounting), ব্যবসায় সংগঠন (Business Org), অর্থনীতি (Economics), English, Bangla, ICT |
+
+## Tech Stack
+
+- **Framework**: Next.js 16 with App Router (SSR + API Routes)
+- **Language**: TypeScript 5
+- **Styling**: Tailwind CSS 4 + shadcn/ui
+- **State**: Zustand
+- **Animation**: Framer Motion
+- **AI**: z-ai-web-dev-sdk (server-side)
+- **Speech**: Web Speech API (SpeechSynthesis + SpeechRecognition)
+- **Database**: Client-side localStorage
+- **Deployment**: Cloudflare Pages (with SSR) / Vercel / Self-hosted

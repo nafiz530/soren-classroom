@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  // REMOVED: output: "export" — we now need API routes for AI calls
+  // For Cloudflare Pages, use @cloudflare/next-on-pages adapter
   typescript: {
     ignoreBuildErrors: true,
   },

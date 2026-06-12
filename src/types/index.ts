@@ -33,8 +33,6 @@ export interface BoardBlock {
   color?: string;
   fontSize?: number;
   formulaText?: string;
-  chalkLines?: string[];
-  chalkColor?: 'white' | 'yellow' | 'cyan' | 'green' | 'pink';
   tableData?: { headers: string[]; rows: string[][] };
   graphData?: { type: 'bar' | 'line'; title?: string; labels: string[]; datasets: { values: number[]; color?: string }[] };
   diagramData?: Record<string, unknown>;
@@ -50,8 +48,6 @@ export interface TeachingIntent {
       type: BoardContentType;
       text: string;
       textBn?: string;
-      chalkLines?: string[];
-      chalkColor?: 'white' | 'yellow' | 'cyan' | 'green' | 'pink';
       formulaText?: string;
       tableData?: { headers: string[]; rows: string[][] };
       graphData?: { type: 'bar' | 'line'; title?: string; labels: string[]; datasets: { values: number[]; color?: string }[] };

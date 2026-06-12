@@ -12,6 +12,22 @@ export class SpeechStreamEngine {
   private progressCallbacks: ProgressCallback[] = [];
   private completeCallbacks: (() => void)[] = [];
   private currentText = '';
+  private voicesLoaded = false;
+
+  constructor() {
+    // Pre-load voices (some browsers load them asynchronously)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices();
+        this.voicesLoaded = true;
+      };
+      loadVoices();
+      // Chrome loads voices asynchronously
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    }
+  }
 
   async stream(speech: string, speechBn?: string): Promise<void> {
     this.stop();
@@ -39,7 +55,9 @@ export class SpeechStreamEngine {
         return speechBn ? [speechBn] : [speech];
       case 'both':
         if (speechBn) {
-          return [speech, speechBn];
+          // For "both" mode: speak Bangla first (primary), then English
+          // This matches how real BD teachers teach — Bangla explanation followed by English terms
+          return [speechBn, speech];
         }
         return [speech];
       default:
@@ -50,13 +68,11 @@ export class SpeechStreamEngine {
   private speakText(text: string): Promise<void> {
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !window.speechSynthesis) {
-        // Fallback: just simulate timing
         this.simulateProgress(text, resolve);
         return;
       }
 
       if (this.isMuted) {
-        // When muted, simulate the speech timing but don't actually speak
         this.simulateProgress(text, resolve);
         return;
       }
@@ -64,26 +80,31 @@ export class SpeechStreamEngine {
       const utterance = new SpeechSynthesisUtterance(text);
       this.currentUtterance = utterance;
 
-      // Detect language
+      // Detect language — check for Bengali Unicode range
       const isBengali = /[\u0980-\u09FF]/.test(text);
       utterance.lang = isBengali ? 'bn-BD' : 'en-US';
 
-      // Speed
-      const rateMap = { slow: 0.75, normal: 1.0, fast: 1.3 };
+      // Speed based on teacher speed setting and language
+      // Bengali speech naturally needs to be slightly slower
+      const rateMap = {
+        slow: isBengali ? 0.7 : 0.75,
+        normal: isBengali ? 0.9 : 1.0,
+        fast: isBengali ? 1.1 : 1.3,
+      };
       utterance.rate = rateMap[this.teacherSpeed];
 
-      // Try to find appropriate voice
+      // Pitch slightly varies for more natural sound
+      utterance.pitch = isBengali ? 1.05 : 1.0;
+
+      // Try to find the best matching voice
       const voices = window.speechSynthesis.getVoices();
-      const matchingVoice = voices.find((v) => {
-        if (isBengali) return v.lang.startsWith('bn');
-        return v.lang.startsWith('en');
-      });
+      const matchingVoice = this.findBestVoice(voices, isBengali);
       if (matchingVoice) {
         utterance.voice = matchingVoice;
       }
 
       // Progress tracking
-      const words = text.split(' ');
+      const words = text.split(/\s+/);
       const totalWords = words.length;
       let reportedProgress = 0;
 
@@ -111,13 +132,79 @@ export class SpeechStreamEngine {
         resolve();
       };
 
+      // Chrome bug workaround: speechSynthesis can pause after ~15 seconds
+      // We use a keepAlive interval to prevent this
+      const keepAlive = setInterval(() => {
+        if (!this.isPlaying) {
+          clearInterval(keepAlive);
+          return;
+        }
+        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 10000);
+
+      const originalOnEnd = utterance.onend;
+      utterance.onend = (event) => {
+        clearInterval(keepAlive);
+        originalOnEnd?.(event);
+      };
+
+      const originalOnError = utterance.onerror;
+      utterance.onerror = (event) => {
+        clearInterval(keepAlive);
+        originalOnError?.(event);
+      };
+
       window.speechSynthesis.speak(utterance);
     });
   }
 
+  /**
+   * Find the best available voice for the given language.
+   * Priority:
+   * 1. Exact language match (bn-BD or en-US)
+   * 2. Language prefix match (bn-* or en-*)
+   * 3. Any voice (fallback)
+   */
+  private findBestVoice(voices: SpeechSynthesisVoice[], isBengali: boolean): SpeechSynthesisVoice | null {
+    if (!voices || voices.length === 0) return null;
+
+    const targetLang = isBengali ? 'bn' : 'en';
+    const targetLocale = isBengali ? 'bn-BD' : 'en-US';
+
+    // 1. Try exact locale match
+    const exactMatch = voices.find((v) => v.lang === targetLocale);
+    if (exactMatch) return exactMatch;
+
+    // 2. Try language prefix match — prefer non-default voices (usually higher quality)
+    const prefixMatches = voices.filter((v) => v.lang.startsWith(targetLang));
+    if (prefixMatches.length > 0) {
+      // Prefer "Google" or "Microsoft" voices (usually better quality)
+      const premiumVoice = prefixMatches.find((v) =>
+        v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')
+      );
+      if (premiumVoice) return premiumVoice;
+
+      // Prefer local voices over network (more reliable)
+      const localVoice = prefixMatches.find((v) => v.localService);
+      if (localVoice) return localVoice;
+
+      return prefixMatches[0];
+    }
+
+    // 3. Fallback: no matching voice
+    return null;
+  }
+
   private simulateProgress(text: string, resolve: () => void): void {
-    const words = text.split(' ');
-    const totalDuration = words.length * 200 * (this.teacherSpeed === 'slow' ? 1.5 : this.teacherSpeed === 'fast' ? 0.7 : 1);
+    const words = text.split(/\s+/);
+    // Simulate timing: ~300ms per word for Bangla, ~200ms for English
+    const isBengali = /[\u0980-\u09FF]/.test(text);
+    const msPerWord = isBengali ? 300 : 200;
+    const speedFactor = this.teacherSpeed === 'slow' ? 1.5 : this.teacherSpeed === 'fast' ? 0.7 : 1;
+    const totalDuration = words.length * msPerWord * speedFactor;
     const stepDuration = totalDuration / words.length;
     let step = 0;
 

@@ -80,27 +80,25 @@ export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDial
         {trigger || (
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
-            নতুন ক্লাস
+            নতুন ক্লাসরুম / New Classroom
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
-            নতুন ক্লাসরুম তৈরি করো
-          </DialogTitle>
+          <DialogTitle>নতুন ক্লাসরুম তৈরি করুন / Create New Classroom</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* Class Number */}
           <div className="space-y-2">
-            <Label style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>শ্রেণি (Class)</Label>
+            <Label>শ্রেণি / Class</Label>
             <Select
               value={String(classNumber)}
               onValueChange={(v) => setClassNumber(Number(v) as ClassNumber)}
             >
               <SelectTrigger>
-                <SelectValue placeholder="শ্রেণি বেছে নাও" />
+                <SelectValue placeholder="শ্রেণি নির্বাচন / Select class" />
               </SelectTrigger>
               <SelectContent>
                 {CLASS_OPTIONS.map((c) => (
@@ -115,20 +113,18 @@ export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDial
           {/* Stream (for class 9-10) */}
           {needsStream && (
             <div className="space-y-2">
-              <Label style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>বিভাগ (Stream)</Label>
+              <Label>বিভাগ / Stream</Label>
               <Select
                 value={stream || ''}
                 onValueChange={(v) => setStream(v as Stream)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="বিভাগ বেছে নাও" />
+                  <SelectValue placeholder="বিভাগ নির্বাচন / Select stream" />
                 </SelectTrigger>
                 <SelectContent>
-                  {STREAM_OPTIONS.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s === 'Science' ? '🔬 বিজ্ঞান' : s === 'Arts' ? '📜 মানবিক' : '💰 বাণিজ্য'}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="Science">বিজ্ঞান / Science</SelectItem>
+                  <SelectItem value="Arts">মানবিক / Arts</SelectItem>
+                  <SelectItem value="Commerce">ব্যবসায় শিক্ষা / Commerce</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -136,10 +132,10 @@ export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDial
 
           {/* Subject */}
           <div className="space-y-2">
-            <Label style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>বিষয় (Subject)</Label>
+            <Label>বিষয় / Subject</Label>
             <Select value={subject} onValueChange={setSubject}>
               <SelectTrigger>
-                <SelectValue placeholder="বিষয় বেছে নাও" />
+                <SelectValue placeholder="বিষয় নির্বাচন / Select subject" />
               </SelectTrigger>
               <SelectContent>
                 {subjects.map((s) => (
@@ -153,18 +149,18 @@ export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDial
 
           {/* Teacher Persona */}
           <div className="space-y-2">
-            <Label style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>শিক্ষকের ধরন</Label>
+            <Label>শিক্ষকের ধরন / Teacher Style</Label>
             <Select
               value={teacherPersona}
               onValueChange={(v) => setTeacherPersona(v as TeacherPersona)}
             >
               <SelectTrigger>
-                <SelectValue placeholder="শিক্ষকের ধরন বেছে নাও" />
+                <SelectValue placeholder="শিক্ষকের ধরন নির্বাচন / Select teacher style" />
               </SelectTrigger>
               <SelectContent>
                 {TEACHER_PERSONAS.map((p) => (
                   <SelectItem key={p.value} value={p.value}>
-                    {p.icon} {p.labelBn}
+                    {p.icon} {p.labelBn} ({p.label})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -173,23 +169,21 @@ export function CreateClassroomDialog({ onCreate, trigger }: CreateClassroomDial
 
           {/* Custom Name */}
           <div className="space-y-2">
-            <Label style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}>
-              ক্লাসরুমের নাম (ঐচ্ছিক)
-            </Label>
+            <Label>ক্লাসরুমের নাম (ঐচ্ছিক) / Name (optional)</Label>
             <Input
-              placeholder={selectedSubject ? `${selectedSubject.labelBn} — ক্লাস ${classNumber}` : 'স্বয়ংক্রিয়'}
+              placeholder={selectedSubject ? `${selectedSubject.labelBn} - ক্লাস ${classNumber}` : 'স্বয়ংক্রিয় / Auto-generated'}
               value={name}
               onChange={(e) => setName(e.target.value)}
+              dir="auto"
             />
           </div>
 
           <Button
-            className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
+            className="w-full bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600"
             onClick={handleCreate}
             disabled={!subject}
-            style={{ fontFamily: '"Noto Sans Bengali", sans-serif' }}
           >
-            ক্লাসরুম তৈরি করো
+            ক্লাসরুম তৈরি করুন / Create Classroom
           </Button>
         </div>
       </DialogContent>

@@ -216,8 +216,6 @@ export class FlowController {
       tableData: board.tableData,
       graphData: board.graphData,
       diagramData: board.diagramData,
-      chalkLines: (board as any).chalkLines,
-      chalkColor: (board as any).chalkColor,
     });
 
     this.emitBoardUpdate();

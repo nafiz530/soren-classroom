@@ -22,7 +22,8 @@ export default function Page() {
           <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-amber-500 to-rose-500 flex items-center justify-center mx-auto mb-3 animate-pulse">
             <span className="text-white text-lg">🎓</span>
           </div>
-          <p className="text-sm text-muted-foreground">Loading Soren Classroom...</p>
+          <p className="text-sm text-muted-foreground">সোরেন ক্লাসরুম লোড হচ্ছে...</p>
+          <p className="text-xs text-muted-foreground/60">Loading Soren Classroom...</p>
         </div>
       </div>
     );
